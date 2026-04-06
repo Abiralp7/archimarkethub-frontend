@@ -34,7 +34,7 @@ export default function SupplierAddProductForm({ onCreated, onCancel, categories
   const [price, setPrice] = useState('');
   const [description, setDescription] = useState('');
   const [categoryId, setCategoryId] = useState('');
-  const [status, setStatus] = useState<'DRAFT' | 'PUBLISHED'>('DRAFT');
+  const [status, setStatus] = useState<'OUT_OF_STOCK' | 'IN_STOCK'>('OUT_OF_STOCK');
 
   const [newImages, setNewImages] = useState<File[]>([]);
   const [newCatalogues, setNewCatalogues] = useState<File[]>([]);
@@ -186,8 +186,8 @@ export default function SupplierAddProductForm({ onCreated, onCancel, categories
             onChange={(e) => setStatus(e.target.value as any)}
             className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <option value="DRAFT">Draft</option>
-            <option value="PUBLISHED">Published</option>
+            <option value="OUT_OF_STOCK">Out of stock</option>
+            <option value="IN_STOCK">In Stock</option>
           </select>
         </div>
       </div>

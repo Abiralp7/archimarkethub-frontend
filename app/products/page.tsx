@@ -1,10 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'next/navigation';
 import api from '@/lib/apiClient';
+import { getCategories } from '@/lib/adminApi';
 import { Search, ChevronRight } from 'lucide-react';
+import { userVisibleProductStatus } from '@/lib/productStatus';
 
 function toAbsoluteUrl(url?: string) {
   if (!url) return undefined;
@@ -24,17 +27,35 @@ function toAbsoluteUrl(url?: string) {
 }
 
 export default function ProductsPage() {
+  const searchParams = useSearchParams();
+  const categorySlug = searchParams.get('categorySlug') || '';
   const [searchQuery, setSearchQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
+
+  const categoryLookupQ = useQuery({
+    queryKey: ['categories', 'lookup', categorySlug],
+    queryFn: () => getCategories(),
+    enabled: !!categorySlug,
+    staleTime: 1000 * 60 * 5,
+  });
+
+  const selectedCategory = useMemo(() => {
+    const normalized = categorySlug.trim().toLowerCase();
+    if (!normalized || !categoryLookupQ.data) return null;
+
+    return (categoryLookupQ.data || []).find((cat: any) =>
+      cat.slug?.toLowerCase() === normalized ||
+      cat.name?.trim().toLowerCase() === normalized,
+    ) || null;
+  }, [categoryLookupQ.data, categorySlug]);
 
   // Fetch products
   const productsQ = useQuery({
-    queryKey: ['products', 'public', { q: searchQuery, categorySlug: categoryFilter }],
+    queryKey: ['products', 'public', { q: searchQuery, categorySlug }],
     queryFn: async () => {
       const res = await api.get('/products', {
         params: {
           q: searchQuery || undefined,
-          categorySlug: categoryFilter || undefined,
+          categorySlug: categorySlug || undefined,
           sort: 'newest',
           take: 50,
         },
@@ -46,6 +67,12 @@ export default function ProductsPage() {
   const products = Array.isArray(productsQ.data)
     ? productsQ.data
     : productsQ.data?.items || [];
+
+function humanizeSlug(slug: string) {
+  return slug
+    .replace(/[-_]/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
 
   return (
     <div className="min-h-screen bg-white">
@@ -71,6 +98,18 @@ export default function ProductsPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+        {categorySlug ? (
+          <section className="mb-8 rounded-3xl bg-gradient-to-r from-slate-900 to-blue-700 p-8 text-white">
+            <p className="text-xs uppercase tracking-[0.3em] text-blue-200">Category</p>
+            <h1 className="mt-2 text-4xl font-black tracking-tight">
+              {selectedCategory?.name || humanizeSlug(categorySlug)}
+            </h1>
+            <p className="mt-3 max-w-3xl text-sm text-slate-200">
+              {selectedCategory?.description || `Browse the best verified products for ${selectedCategory?.name || humanizeSlug(categorySlug)}.`}
+            </p>
+          </section>
+        ) : null}
+
         {/* Search and Filters */}
         <div className="mb-8 space-y-4">
           <h1 className="text-3xl font-bold text-slate-900">Browse Products</h1>
@@ -127,6 +166,9 @@ export default function ProductsPage() {
                   <p className="text-xs font-semibold text-blue-600 uppercase mb-1">
                     {product.category?.name || 'Material'}
                   </p>
+                  <p className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold mb-2 bg-slate-100 text-slate-700">
+                    {userVisibleProductStatus(product.status)}
+                  </p>
                   <h3 className="font-bold text-slate-900 mb-2 line-clamp-2 group-hover:text-blue-600">
                     {product.name}
                   </h3>
@@ -163,17 +205,24 @@ export default function ProductsPage() {
                   {/* Company with Logo */}
                   {product.company && (
                     <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-100">
-                      {product.company.logoUrl ? (
-                        <img
-                          src={product.company.logoUrl}
-                          alt={product.company.name}
-                          className="h-6 w-6 rounded object-cover flex-shrink-0"
-                        />
-                      ) : (
-                        <div className="h-6 w-6 rounded bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
-                          {product.company.name.charAt(0)}
-                        </div>
-                      )}
+                      <div className="relative flex-shrink-0">
+                        {product.company.logoUrl ? (
+                          <img
+                            src={product.company.logoUrl}
+                            alt={product.company.name}
+                            className="h-6 w-6 rounded object-cover"
+                          />
+                        ) : (
+                          <div className="h-6 w-6 rounded bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold">
+                            {product.company.name.charAt(0)}
+                          </div>
+                        )}
+                        {product.company.hasBadge && (
+                          <div className="absolute -bottom-0.5 -right-0.5 h-3 w-3 bg-blue-500 rounded-full border border-white flex items-center justify-center">
+                            <span className="material-symbols-outlined text-white text-[10px]" style={{ fontVariationSettings: `"FILL" 1` }}>check</span>
+                          </div>
+                        )}
+                      </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-semibold text-slate-700 truncate">
                           {product.company.name}

@@ -200,8 +200,13 @@ export default function CompanyProductsPage() {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex items-center gap-4">
                 {/* Company Logo */}
-                <div className={`h-16 w-16 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-center font-bold text-2xl ${logoClass}`}>
+                <div className={`h-16 w-16 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-center font-bold text-2xl relative ${logoClass}`}>
                   {company.logo}
+                  {company.hasBadge && (
+                    <div className="absolute -bottom-1 -right-1 h-6 w-6 bg-blue-500 rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-md">
+                      <span className="material-symbols-outlined text-white text-sm" style={{ fontVariationSettings: `"FILL" 1` }}>check</span>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white leading-none mb-1">

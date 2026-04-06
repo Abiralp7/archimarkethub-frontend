@@ -39,6 +39,10 @@ export type Company = {
   avgRating?: number | string;
   ratingCount?: number;
 
+  // Badge
+  hasBadge?: boolean;
+  badgeAwardedAt?: string;
+
   status?: CompanyStatus;
   createdAt?: string;
 };
@@ -324,6 +328,11 @@ export async function adminUpdateProductAdminRating(id: string, adminRating: num
 
 export async function adminUpdateCompanyAdminRating(id: string, adminRating: number) {
   const res = await api.patch(`/admin/companies/${id}/admin-rating`, { adminRating });
+  return res.data;
+}
+
+export async function adminToggleCompanyBadge(id: string, hasBadge: boolean) {
+  const res = await api.patch(`/admin/companies/${id}/badge`, { hasBadge });
   return res.data;
 }
 
@@ -721,14 +730,15 @@ export async function supplierGetApplicationStatus() {
   }
 }
 
-export async function getPublicProducts(params?: { q?: string; skip?: number; take?: number }) {
+export async function getPublicProducts(params?: { q?: string; skip?: number; take?: number; companySlug?: string; companyId?: string; categorySlug?: string }) {
   try {
     const res = await api.get('/products', {
       params: {
         q: params?.q,
         skip: params?.skip ?? 0,
         take: params?.take ?? 50,
-        companySlug: (params as any)?.companySlug,
+        companyId: params?.companyId,
+        categorySlug: params?.categorySlug,
       },
     });
     return res.data;
@@ -742,6 +752,7 @@ export type Category = {
   name: string;
   slug?: string;
   description?: string | null;
+  keywords?: string[];
 };
 
 export async function getPublicCompanies(params?: { skip?: number; take?: number }) {
@@ -775,12 +786,12 @@ export async function getCategories() {
 }
 
 // Admin category management (uses same public endpoints)
-export async function adminCreateCategory(payload: { name: string; description?: string; slug?: string }) {
+export async function adminCreateCategory(payload: { name: string; description?: string; slug?: string; keywords?: string[] }) {
   const res = await api.post('/categories', payload);
   return res.data;
 }
 
-export async function adminUpdateCategory(id: string, payload: { name?: string; description?: string; slug?: string }) {
+export async function adminUpdateCategory(id: string, payload: { name?: string; description?: string; slug?: string; keywords?: string[] }) {
   const res = await api.patch(`/categories/${id}`, payload);
   return res.data;
 }

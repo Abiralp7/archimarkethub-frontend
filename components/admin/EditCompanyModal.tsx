@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { X, Download, FileText, CheckCircle2, Check, ChevronDown, Save, Upload } from 'lucide-react';
+import { useState, useEffect, useRef, useTransition } from 'react';
+import { X, Download, FileText, CheckCircle2, Check, ChevronDown, Save, Upload, AlertCircle } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { adminGetCompany, adminUpdateCompanyStatus, adminUpdateCompany, adminUpdateCompanyAdminRating, adminUploadFile } from '@/lib/adminApi';
+import { adminGetCompany, adminUpdateCompanyStatus, adminUpdateCompany, adminUpdateCompanyAdminRating, adminUploadFile, adminToggleCompanyBadge } from '@/lib/adminApi';
 import { StarRating } from '@/components/StarRating';
 import { COUNTRIES } from '@/lib/countries';
 
@@ -15,9 +15,11 @@ interface EditCompanyModalProps {
 
 export default function EditCompanyModal({ isOpen, onClose, companyId }: EditCompanyModalProps) {
   const qc = useQueryClient();
+  const [isPending, startTransition] = useTransition();
   const [statusError, setStatusError] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [ratingError, setRatingError] = useState<string | null>(null);
+  const [badgeError, setBadgeError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
 
   // Editable fields
@@ -120,11 +122,25 @@ export default function EditCompanyModal({ isOpen, onClose, companyId }: EditCom
     },
   });
 
+  const handleToggleBadge = () => {
+    startTransition(async () => {
+      try {
+        setBadgeError(null);
+        const hasBadge = company?.hasBadge || false;
+        await adminToggleCompanyBadge(companyId, !hasBadge);
+        await qc.invalidateQueries({ queryKey: ['admin', 'company', companyId] });
+        await qc.invalidateQueries({ queryKey: ['admin', 'companies'] });
+      } catch (error) {
+        setBadgeError(error instanceof Error ? error.message : 'Failed to toggle badge');
+      }
+    });
+  };
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="relative z-[10000] bg-white dark:bg-slate-900 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
         
         {/* Header */}
         <div className="px-8 py-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-start shrink-0">
@@ -553,6 +569,52 @@ export default function EditCompanyModal({ isOpen, onClose, companyId }: EditCom
                   {ratingError && <p className="text-sm text-rose-600 dark:text-rose-400 mt-2">{ratingError}</p>}
                 </div>
 
+                {/* Premium Badge Toggle */}
+                <div className="space-y-2 rounded-xl border border-blue-200 dark:border-blue-800 p-4 bg-blue-50/50 dark:bg-blue-900/10">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3 flex-1">
+                      <div className="mt-0.5">
+                        {company?.hasBadge ? (
+                          <CheckCircle2 className="h-5 w-5 text-blue-600" />
+                        ) : (
+                          <AlertCircle className="h-5 w-5 text-slate-400" />
+                        )}
+                      </div>
+                      <div>
+                        <p className="font-semibold text-slate-900 dark:text-white text-sm">Premium Badge</p>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                          {company?.hasBadge ? 'Company has premium badge' : 'Award premium badge to this company'}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleToggleBadge}
+                      disabled={isPending}
+                      className={`px-3 py-1.5 rounded-lg font-semibold text-sm transition-all whitespace-nowrap mt-0.5 ${
+                        company?.hasBadge
+                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/40 disabled:opacity-50'
+                          : 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50'
+                      } disabled:cursor-not-allowed`}
+                    >
+                      {isPending ? (
+                        <span className="flex items-center gap-1">
+                          <span className="h-3 w-3 border-2 border-current border-r-transparent rounded-full animate-spin" />
+                          ...
+                        </span>
+                      ) : company?.hasBadge ? (
+                        'Remove'
+                      ) : (
+                        'Award'
+                      )}
+                    </button>
+                  </div>
+                  {badgeError && (
+                    <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded border border-red-200 dark:border-red-800">
+                      <p className="text-xs text-red-700 dark:text-red-400">{badgeError}</p>
+                    </div>
+                  )}
+                </div>
+
                 {/* Created Date */}
                 {company.createdAt && (
                   <div className="space-y-2">
@@ -602,53 +664,23 @@ export default function EditCompanyModal({ isOpen, onClose, companyId }: EditCom
                       {updateDetailsM.isPending ? 'Saving...' : 'Save Changes'}
                     </button>
                   </div>
-                ) : (
-                  <button
-                    onClick={() => setIsEditing(true)}
-                    className="w-full px-4 py-2.5 text-sm font-semibold text-admin-primary hover:bg-admin-primary/10 rounded-lg transition-colors"
-                  >
-                    Edit Company Info
-                  </button>
-                )}
+                ) : null}
               </div>
 
-              {/* Legal Documents */}
-              {company.legalDocUrls && company.legalDocUrls.length > 0 && (
-                <div className="space-y-3">
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Legal Documents
-                  </label>
-                  <div className="space-y-2">
-                    {company.legalDocUrls.map((docUrl: string, idx: number) => {
-                      const fileName = docUrl.split('/').pop() || `Document ${idx + 1}`;
-                      return (
-                        <a
-                          key={idx}
-                          href={docUrl}
-                          download
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/30 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors group"
-                        >
-                          <FileText className="h-4 w-4 text-blue-600 flex-shrink-0" />
-                          <span className="text-sm font-medium text-blue-700 dark:text-blue-400 flex-1 break-all">
-                            {fileName}
-                          </span>
-                          <Download className="h-4 w-4 text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-                        </a>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
             </>
           )}
         </div>
 
         {/* Footer */}
         <div className="px-8 py-6 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50 shrink-0">
+          <button
+            onClick={() => setIsEditing(true)}
+            className="px-4 py-2.5 text-sm font-semibold text-admin-primary hover:bg-admin-primary/10 rounded-lg transition-colors"
+          >
+            Edit Company Info
+          </button>
           <div className="flex-1">
-            {statusError && <p className="text-sm text-rose-600 dark:text-rose-400">{statusError}</p>}
+            {statusError && <p className="text-sm text-rose-600 dark:text-rose-400 text-center">{statusError}</p>}
           </div>
           <div className="flex items-center gap-3">
             {company?.status === 'PENDING' && (
@@ -671,12 +703,6 @@ export default function EditCompanyModal({ isOpen, onClose, companyId }: EditCom
                 {updateStatusM.isPending ? 'Updating...' : 'Revert to Pending'}
               </button>
             )}
-            <button
-              onClick={onClose}
-              className="px-6 py-2.5 text-sm font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-            >
-              Close
-            </button>
           </div>
         </div>
       </div>

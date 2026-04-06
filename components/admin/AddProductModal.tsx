@@ -55,7 +55,7 @@ export default function AddProductModal({ isOpen, onClose, companyId: initialCom
   const [name, setName] = useState('');
   const [price, setPrice] = useState('');
   const [description, setDescription] = useState('');
-  const [status, setStatus] = useState<'DRAFT' | 'PUBLISHED' | 'ARCHIVED'>('DRAFT');
+  const [status, setStatus] = useState<'OUT_OF_STOCK' | 'IN_STOCK' | 'ARCHIVED'>('OUT_OF_STOCK');
    // category
    const [categoryId, setCategoryId] = useState('');
   const [defaultImageIdx, setDefaultImageIdx] = useState<number>(0);
@@ -91,7 +91,9 @@ export default function AddProductModal({ isOpen, onClose, companyId: initialCom
     refetchOnMount: 'always',
   });
 
-  const companies = companiesData?.data || [];
+  const companies = Array.isArray(companiesData)
+    ? companiesData
+    : companiesData?.items || companiesData?.data || [];
   const categories = categoriesData || [];
 
   // Set company ID when modal opens with initialCompanyId
@@ -172,7 +174,7 @@ export default function AddProductModal({ isOpen, onClose, companyId: initialCom
     setName('');
     setPrice('');
     setDescription('');
-    setStatus('DRAFT');
+    setStatus('OUT_OF_STOCK');
 
     setImageFiles([]);
     setImagePreviews([]);
@@ -358,9 +360,9 @@ export default function AddProductModal({ isOpen, onClose, companyId: initialCom
                   className="w-full appearance-none px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/50 outline-none focus:ring-2 focus:ring-admin-primary/20 dark:text-white"
                   disabled={createProductM.isPending}
                 >
-                  <option value="DRAFT">Draft</option>
-                  <option value="PUBLISHED">Published</option>
-                  <option value="ARCHIVED">Archived</option>
+                  <option value="OUT_OF_STOCK">Out of stock</option>
+                  <option value="IN_STOCK">In Stock</option>
+                  <option value="ARCHIVED">Archive</option>
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
               </div>

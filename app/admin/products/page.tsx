@@ -8,6 +8,7 @@ import EditProductModal from '@/components/admin/EditProductModal';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { adminProducts, adminDeleteProduct } from '@/lib/adminApi';
+import { userVisibleProductStatus, productStatusColor } from '@/lib/productStatus';
 import { StarRating } from '@/components/StarRating';
 
 function formatDate(input?: string): string {
@@ -172,7 +173,11 @@ export default function ProductsPage() {
                             </div>
                           </td>
                           <td className="px-6 py-4 text-slate-700 dark:text-slate-300">{companyName}</td>
-                          <td className="px-6 py-4 text-slate-700 dark:text-slate-300">{product.status || '-'}</td>
+                          <td className="px-6 py-4">
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${productStatusColor(product.status)}`}>
+                              {userVisibleProductStatus(product.status)}
+                            </span>
+                          </td>
                           <td className="px-6 py-4">
                             <StarRating rating={product.adminRating || 0} size="sm" />
                           </td>

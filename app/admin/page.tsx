@@ -1,7 +1,7 @@
 'use client';
 
 import { ClipboardCheck, UserCheck, Flag, Sparkles } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import {
@@ -238,17 +238,84 @@ export default function AdminDashboard() {
     retry: false,
   });
 
+  // Fetch all products for name mapping
+  const allProductsQ = useQuery({
+    queryKey: ['admin', 'products', 'all'],
+    queryFn: async () => {
+      try {
+        const result = await adminProducts({ skip: 0, take: 100 });
+        console.log('Products API result:', result);
+        return result;
+      } catch (error) {
+        console.error('Error fetching products:', error);
+        throw error;
+      }
+    },
+    retry: true,
+  });
+
+  // Fetch all companies for name mapping
+  const allCompaniesQ = useQuery({
+    queryKey: ['admin', 'companies', 'all'],
+    queryFn: async () => {
+      try {
+        const result = await adminCompanies({ skip: 0, take: 100 });
+        console.log('Companies API result:', result);
+        return result;
+      } catch (error) {
+        console.error('Error fetching companies:', error);
+        throw error;
+      }
+    },
+    retry: true,
+  });
+
   const dailyQ = useQuery({
-    queryKey: ['admin', 'analytics', 'daily', { eventType: 'product:view' }],
-    queryFn: () => adminAnalyticsDaily({ eventType: 'product:view' }),
+    queryKey: ['admin', 'analytics', 'daily', { eventType: 'view' }],
+    queryFn: () => {
+      // Calculate last 7 days date range
+      const to = new Date();
+      const from = new Date();
+      from.setDate(from.getDate() - 6); // 7 days including today
+      
+      return adminAnalyticsDaily({
+        eventType: 'view',
+        entityType: 'product',
+        from: from.toISOString().split('T')[0],
+        to: to.toISOString().split('T')[0],
+      });
+    },
     retry: false,
   });
 
-  const topQ = useQuery({
-    queryKey: ['admin', 'analytics', 'top'],
-    queryFn: adminAnalyticsTop,
+  // Fetch top products analytics
+  const topProductsQ = useQuery({
+    queryKey: ['admin', 'analytics', 'top', 'products', { eventType: 'view' }],
+    queryFn: () => adminAnalyticsTop({ eventType: 'view', entityType: 'product' }),
     retry: false,
   });
+
+  // Fetch top companies analytics
+  const topCompaniesQ = useQuery({
+    queryKey: ['admin', 'analytics', 'top', 'companies', { eventType: 'view' }],
+    queryFn: () => adminAnalyticsTop({ eventType: 'view', entityType: 'company' }),
+    retry: false,
+  });
+
+  const [showAllTopProducts, setShowAllTopProducts] = useState(false);
+  const [showAllTopCompanies, setShowAllTopCompanies] = useState(false);
+
+  const allProducts = useMemo(() => {
+    const data: any = allProductsQ.data;
+    if (Array.isArray(data)) return data;
+    return data?.items ?? data?.data ?? [];
+  }, [allProductsQ.data]);
+
+  const allCompanies = useMemo(() => {
+    const data: any = allCompaniesQ.data;
+    if (Array.isArray(data)) return data;
+    return data?.items ?? data?.data ?? [];
+  }, [allCompaniesQ.data]);
 
   const pendingCount =
     pendingCompaniesQ.data?.total ?? pendingCompaniesQ.data?.items?.length ?? 0;
@@ -259,56 +326,197 @@ export default function AdminDashboard() {
   const productsCount =
     productsCountQ.data?.total ?? productsCountQ.data?.items?.length ?? 0;
 
-  // Map analytics response safely (no dummy fallbacks)
+  // Map analytics response safely - filter for product views
   const productSeries = useMemo(() => {
     const r: any = dailyQ.data;
+    // The daily query should return filtered product:view analytics
     const raw =
-      r?.productViews7d ??
-      r?.productViews ??
-      r?.products ??
-      r?.product ??
-      r?.data?.productViews7d ??
-      r?.data?.productViews ??
-      r;
-    return to7DaySeries(raw);
+      r?.daily ??
+      r?.items ??
+      r?.data ??
+      [];
+    return to7DaySeries(Array.isArray(raw) ? raw : []);
   }, [dailyQ.data]);
+
+  const totalProductViews = useMemo(() => {
+    return productSeries.reduce((sum, day) => sum + day.value, 0);
+  }, [productSeries]);
 
   const companySeries = useMemo(() => {
-    const r: any = dailyQ.data;
-    const raw =
-      r?.companyViews7d ??
-      r?.companyViews ??
-      r?.companies ??
-      r?.company ??
-      r?.data?.companyViews7d ??
-      r?.data?.companyViews ??
-      r;
-    return to7DaySeries(raw);
-  }, [dailyQ.data]);
+    // Placeholder for company views - not tracking company views yet
+    return DAYS.map((d) => ({ day: d, value: 0 }));
+  }, []);
+
+  const totalCompanyViews = useMemo(() => {
+    return companySeries.reduce((sum, day) => sum + day.value, 0);
+  }, [companySeries]);
 
   const topProducts = useMemo(() => {
-    const r: any = topQ.data;
+    const r: any = topProductsQ.data;
     const raw =
-      r?.topProducts ??
-      r?.products ??
-      r?.product ??
-      r?.data?.topProducts ??
-      r?.data?.products ??
-      r;
-    return toTopRows(raw);
-  }, [topQ.data]);
+      r?.items ??
+      r?.data ??
+      r ?? [];
+    
+    // Debug: Log what we're getting
+    console.log('=== TOP PRODUCTS DEBUG ===');
+    console.log('All products query state:', {
+      isLoading: allProductsQ.isLoading,
+      isError: allProductsQ.isError,
+      data: allProductsQ.data,
+    });
+    
+    // Try multiple paths to get products
+    let products = allProductsQ.data?.items || [];
+    console.log('Products from .items:', products);
+    
+    if (!products || products.length === 0) {
+      products = allProductsQ.data?.data || [];
+      console.log('Products from .data:', products);
+    }
+    
+    if (!products || products.length === 0) {
+      products = Array.isArray(allProductsQ.data) ? allProductsQ.data : [];
+      console.log('Products as direct array:', products);
+    }
+    
+    console.log('Final products array:', products);
+    console.log('Raw analytics data:', raw);
+    
+    // Create map of product IDs to names from all products
+    const productMap = new Map<string, string>();
+    
+    if (Array.isArray(products) && products.length > 0) {
+      products.forEach((p: any) => {
+        if (p && p.id && p.name) {
+          productMap.set(p.id, p.name);
+          console.log(`✓ Mapped: ${p.id} -> ${p.name}`);
+        }
+      });
+    }
+    
+    console.log('Product map size:', productMap.size);
+    
+    // Convert API response { entityId, count } to { name, views, trend }
+    const rows = (Array.isArray(raw) ? raw : []).map((item: any, idx: number) => {
+      const entityId = item.entityId || item.id || '';
+      const count = item.count || item.views || 0;
+      
+      // Try to get name from map, fallback to entityId
+      let productName = productMap.get(entityId);
+      if (!productName && entityId) {
+        productName = entityId;
+      }
+      productName = productName || 'Unknown';
+      
+      console.log(`Found name for ${entityId}: ${productName}`);
+      
+      // Calculate trend: compare with previous item (next highest)
+      let trend = 0;
+      if (idx < (raw.length - 1)) {
+        const prevCount = raw[idx + 1]?.count || 0;
+        if (prevCount > 0) {
+          trend = Math.round(((count - prevCount) / prevCount) * 100);
+        } else {
+          trend = count > 0 ? 100 : 0;
+        }
+      }
+      
+      return {
+        name: productName,
+        views: count,
+        trend,
+      };
+    });
+    
+    console.log('Final rows:', rows);
+    return rows.slice(0, 10);
+  }, [topProductsQ.data, allProductsQ.data, allProductsQ.isLoading]);
 
   const topCompanies = useMemo(() => {
-    const r: any = topQ.data;
+    const r: any = topCompaniesQ.data;
     const raw =
       r?.topCompanies ??
       r?.companies ??
       r?.company ??
       r?.data?.topCompanies ??
       r?.data?.companies ??
-      r;
-    return toTopRows(raw);
-  }, [topQ.data]);
+      r ?? [];
+    
+    // Debug: Log what we're getting
+    console.log('=== TOP COMPANIES DEBUG ===');
+    console.log('All companies query state:', {
+      isLoading: allCompaniesQ.isLoading,
+      isError: allCompaniesQ.isError,
+      data: allCompaniesQ.data,
+    });
+    
+    // Try multiple paths to get companies
+    let companies = allCompaniesQ.data?.items || [];
+    console.log('Companies from .items:', companies);
+    
+    if (!companies || companies.length === 0) {
+      companies = allCompaniesQ.data?.data || [];
+      console.log('Companies from .data:', companies);
+    }
+    
+    if (!companies || companies.length === 0) {
+      companies = Array.isArray(allCompaniesQ.data) ? allCompaniesQ.data : [];
+      console.log('Companies as direct array:', companies);
+    }
+    
+    console.log('Final companies array:', companies);
+    console.log('Raw analytics data:', raw);
+    
+    // Create map of company IDs to names from all companies
+    const companyMap = new Map<string, string>();
+    
+    if (Array.isArray(companies) && companies.length > 0) {
+      companies.forEach((c: any) => {
+        if (c && c.id && c.name) {
+          companyMap.set(c.id, c.name);
+          console.log(`✓ Mapped: ${c.id} -> ${c.name}`);
+        }
+      });
+    }
+    
+    console.log('Company map size:', companyMap.size);
+    
+    // Convert API response { entityId, count } to { name, views, trend }
+    const rows = (Array.isArray(raw) ? raw : []).map((item: any, idx: number) => {
+      const entityId = item.entityId || item.id || '';
+      const count = item.count || item.views || 0;
+      
+      // Try to get name from map, fallback to entityId
+      let companyName = companyMap.get(entityId);
+      if (!companyName && entityId) {
+        companyName = entityId;
+      }
+      companyName = companyName || 'Unknown';
+      
+      console.log(`Found name for ${entityId}: ${companyName}`);
+      
+      // Calculate trend: compare with previous item (next highest)
+      let trend = 0;
+      if (idx < (raw.length - 1)) {
+        const prevCount = raw[idx + 1]?.count || 0;
+        if (prevCount > 0) {
+          trend = Math.round(((count - prevCount) / prevCount) * 100);
+        } else {
+          trend = count > 0 ? 100 : 0;
+        }
+      }
+      
+      return {
+        name: companyName,
+        views: count,
+        trend,
+      };
+    });
+    
+    console.log('Final rows:', rows);
+    return rows.slice(0, 10);
+  }, [topCompaniesQ.data, allCompaniesQ.data, allCompaniesQ.isLoading]);
 
   // Flagged reviews: Swagger doesn't show a flagged count endpoint → keep 0 for now
   const flaggedReviews = 0;
@@ -409,7 +617,9 @@ export default function AdminDashboard() {
                   <h4 className="font-bold text-slate-900 dark:text-white">
                     Daily Product Views
                   </h4>
-                  <p className="text-xs text-slate-500">Last 7 days analytics</p>
+                  <p className="text-xs text-slate-500">
+                    Last 7 days • <span className="font-bold text-slate-900 dark:text-white">{totalProductViews.toLocaleString()}</span> total
+                  </p>
                 </div>
                 <select className="text-xs bg-slate-50 dark:bg-slate-800 border-none rounded-lg focus:ring-1 focus:ring-admin-primary py-1.5 px-3">
                   <option>Last 7 Days</option>
@@ -424,7 +634,9 @@ export default function AdminDashboard() {
                   <h4 className="font-bold text-slate-900 dark:text-white">
                     Daily Company Views
                   </h4>
-                  <p className="text-xs text-slate-500">Last 7 days analytics</p>
+                  <p className="text-xs text-slate-500">
+                    Last 7 days • <span className="font-bold text-slate-900 dark:text-white">{totalCompanyViews.toLocaleString()}</span> total
+                  </p>
                 </div>
                 <select className="text-xs bg-slate-50 dark:bg-slate-800 border-none rounded-lg focus:ring-1 focus:ring-admin-primary py-1.5 px-3">
                   <option>Last 7 Days</option>
@@ -439,9 +651,12 @@ export default function AdminDashboard() {
             <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
               <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                 <h4 className="font-bold text-slate-900 dark:text-white">
-                  Top 10 Products by Views
+                  Top Products by Views
                 </h4>
-                <button className="text-xs text-admin-primary font-bold hover:underline">
+                <button
+                  onClick={() => setShowAllTopProducts(true)}
+                  className="text-xs text-admin-primary font-bold hover:underline"
+                >
                   View All
                 </button>
               </div>
@@ -462,7 +677,7 @@ export default function AdminDashboard() {
                         </td>
                       </tr>
                     ) : (
-                      topProducts.map((p) => (
+                      topProducts.slice(0, 5).map((p) => (
                         <tr
                           key={p.name}
                           className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
@@ -482,14 +697,22 @@ export default function AdminDashboard() {
                   </tbody>
                 </table>
               </div>
+              {topProducts.length > 5 && (
+                <div className="px-6 py-3 text-xs text-slate-500">
+                  Showing 5 of {topProducts.length}
+                </div>
+              )}
             </div>
 
             <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
               <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                 <h4 className="font-bold text-slate-900 dark:text-white">
-                  Top 10 Companies by Views
+                  Top Companies by Views
                 </h4>
-                <button className="text-xs text-admin-primary font-bold hover:underline">
+                <button
+                  onClick={() => setShowAllTopCompanies(true)}
+                  className="text-xs text-admin-primary font-bold hover:underline"
+                >
                   View All
                 </button>
               </div>
@@ -510,7 +733,7 @@ export default function AdminDashboard() {
                         </td>
                       </tr>
                     ) : (
-                      topCompanies.map((c) => (
+                      topCompanies.slice(0, 5).map((c) => (
                         <tr
                           key={c.name}
                           className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
@@ -530,15 +753,115 @@ export default function AdminDashboard() {
                   </tbody>
                 </table>
               </div>
+              {topCompanies.length > 5 && (
+                <div className="px-6 py-3 text-xs text-slate-500">
+                  Showing 5 of {topCompanies.length}
+                </div>
+              )}
             </div>
           </div>
+
+          {showAllTopProducts && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60">
+              <div className="w-full max-w-5xl rounded-3xl bg-white shadow-2xl overflow-hidden">
+                <div className="flex items-center justify-between px-6 py-5 border-b border-slate-200">
+                  <div>
+                    <h4 className="font-bold text-slate-900">All Products</h4>
+                    <p className="text-sm text-slate-500">Same table design as Products management.</p>
+                  </div>
+                  <button
+                    onClick={() => setShowAllTopProducts(false)}
+                    className="text-sm font-semibold text-slate-500 hover:text-slate-900"
+                  >
+                    Close
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-600 uppercase text-[10px] font-bold tracking-wider">
+                        <th className="px-6 py-3">Product</th>
+                        <th className="px-6 py-3 text-right">Views</th>
+                        <th className="px-6 py-3 text-right">Trend</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {topProducts.length === 0 ? (
+                        <tr>
+                          <td className="px-6 py-6 text-slate-400 text-sm" colSpan={3}>
+                            No ranked products available.
+                          </td>
+                        </tr>
+                      ) : (
+                        topProducts.map((product, idx) => (
+                          <tr key={product.name || idx} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-6 py-4 font-medium text-slate-900">{idx + 1}. {product.name}</td>
+                            <td className="px-6 py-4 text-right tabular-nums text-slate-700">{product.views.toLocaleString()}</td>
+                            <td className="px-6 py-4 text-right"><Trend value={product.trend} /></td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showAllTopCompanies && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60">
+              <div className="w-full max-w-5xl rounded-3xl bg-white shadow-2xl overflow-hidden">
+                <div className="flex items-center justify-between px-6 py-5 border-b border-slate-200">
+                  <div>
+                    <h4 className="font-bold text-slate-900">All Companies</h4>
+                    <p className="text-sm text-slate-500">Same table design as Companies management.</p>
+                  </div>
+                  <button
+                    onClick={() => setShowAllTopCompanies(false)}
+                    className="text-sm font-semibold text-slate-500 hover:text-slate-900"
+                  >
+                    Close
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-600 uppercase text-[10px] font-bold tracking-wider">
+                        <th className="px-6 py-3">Company</th>
+                        <th className="px-6 py-3 text-right">Views</th>
+                        <th className="px-6 py-3 text-right">Trend</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {topCompanies.length === 0 ? (
+                        <tr>
+                          <td className="px-6 py-6 text-slate-400 text-sm" colSpan={3}>
+                            No ranked companies available.
+                          </td>
+                        </tr>
+                      ) : (
+                        topCompanies.map((company, idx) => (
+                          <tr key={company.name || idx} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-6 py-4 font-medium text-slate-900">{idx + 1}. {company.name}</td>
+                            <td className="px-6 py-4 text-right tabular-nums text-slate-700">{company.views.toLocaleString()}</td>
+                            <td className="px-6 py-4 text-right"><Trend value={company.trend} /></td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Optional error hints (dev) */}
           {(pendingCompaniesQ.isError ||
             claimsQ.isError ||
             productsCountQ.isError ||
             dailyQ.isError ||
-            topQ.isError) && (
+            topProductsQ.isError ||
+            topCompaniesQ.isError) && (
             <div className="text-xs text-rose-600 font-bold">
               Some dashboard data failed to load. Check Network tab and response shapes.
             </div>

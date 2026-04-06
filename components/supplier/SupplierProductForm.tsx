@@ -69,21 +69,20 @@ export default function SupplierProductForm({
   const [price, setPrice] = useState('');
   const [description, setDescription] = useState('');
   const [categoryId, setCategoryId] = useState('');
-  const [status, setStatus] = useState<'DRAFT' | 'PUBLISHED'>('DRAFT');
+  const [status, setStatus] = useState<'OUT_OF_STOCK' | 'IN_STOCK' | 'ARCHIVED'>('OUT_OF_STOCK');
 
   // Image state
-  const [imageUrls, setImageUrls] = useState<string[]>([]); // Existing images
+  const [existingImages, setExistingImages] = useState<any[]>([]); // Existing images with id+url
   const [newImageFiles, setNewImageFiles] = useState<File[]>([]); // Newly selected
   const [newImagePreviews, setNewImagePreviews] = useState<string[]>([]); // Preview URLs
   const [uploadedImageUrls, setUploadedImageUrls] = useState<string[]>([]); // Uploaded
 
   // Catalog state
-  const [catalogs, setCatalogs] = useState<any[]>([]); // Existing catalogs
-  const [uploadedCatalogUrl, setUploadedCatalogUrl] = useState<string | null>(null);
+  const [catalogs, setCatalogs] = useState<any[]>([]); // Existing catalogs (objects with id,fileUrl,title)
+  const [uploadedCatalogs, setUploadedCatalogs] = useState<
+    Array<{ title?: string; fileUrl?: string; assetId?: string; fileType?: string | null; fileSize?: number | null }>
+  >([]);
   const [catalogFileName, setCatalogFileName] = useState('');
-  const [catalogAssetId, setCatalogAssetId] = useState<string | null>(null);
-  const [uploadedCatalogType, setUploadedCatalogType] = useState<string | null>(null);
-  const [uploadedCatalogSize, setUploadedCatalogSize] = useState<number | null>(null);
 
   // Error states
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
@@ -100,26 +99,26 @@ export default function SupplierProductForm({
       setPrice(existingProduct.price ? String(existingProduct.price) : '');
       setDescription(existingProduct.description || '');
       setCategoryId(existingProduct.category?.id || existingProduct.categoryId || '');
-      setStatus(existingProduct.status || 'DRAFT');
-      setImageUrls(existingProduct.images?.map((img: any) => img.url) || []);
+      setStatus(existingProduct.status || 'OUT_OF_STOCK');
+      setExistingImages(existingProduct.images || []);
       setCatalogs(existingProduct.catalogs || []);
       setNewImageFiles([]);
       setNewImagePreviews([]);
       setUploadedImageUrls([]);
-      setUploadedCatalogUrl(null);
+      setUploadedCatalogs([]);
       setCatalogFileName('');
     } else if (isOpen && mode === 'create') {
       setName('');
       setPrice('');
       setDescription('');
       setCategoryId('');
-      setStatus('DRAFT');
-      setImageUrls([]);
+      setStatus('OUT_OF_STOCK');
+      setExistingImages([]);
       setNewImageFiles([]);
       setNewImagePreviews([]);
       setUploadedImageUrls([]);
       setCatalogs([]);
-      setUploadedCatalogUrl(null);
+      setUploadedCatalogs([]);
       setCatalogFileName('');
     }
   }, [isOpen, mode, existingProduct]);
@@ -127,8 +126,7 @@ export default function SupplierProductForm({
   // clear catalog metadata when modal closes
   useEffect(() => {
     if (!isOpen) {
-      setUploadedCatalogType(null);
-      setUploadedCatalogSize(null);
+      setUploadedCatalogs([]);
     }
   }, [isOpen]);
 
@@ -157,11 +155,8 @@ export default function SupplierProductForm({
     mutationFn: async (file: File) => {
       return adminUploadFile({ file, purpose: 'PRODUCT_CATALOG' });
     },
-    onSuccess: (res) => {
-      const url = toAbsoluteUrl(res.url);
-      if (url) setUploadedCatalogUrl(url);
-      if (res.assetId) setCatalogAssetId(res.assetId);
-    },
+    // onSuccess handled by caller to include original File metadata
+    onSuccess: () => {},
   });
 
   // Create/update product mutation (and attach media)
@@ -180,7 +175,7 @@ export default function SupplierProductForm({
           name: name.trim(),
           description: description.trim() || undefined,
           price: price ? parseFloat(price) : undefined,
-          categoryId: categoryId || undefined,
+          categoryId: categoryId,
           status,
         });
       }
@@ -193,20 +188,33 @@ export default function SupplierProductForm({
           await supplierAddProductImage(data.id, { url });
         }
 
-        // Attach uploaded catalogs
-        if (uploadedCatalogUrl || catalogAssetId) {
+        // Attach uploaded catalogs (support multiple uploaded catalogs)
+        const catalogErrors: string[] = [];
+        for (const cat of uploadedCatalogs) {
+          // validate metadata presence; if missing, skip and record error
+          if (!cat.fileType || typeof cat.fileSize !== 'number') {
+            catalogErrors.push(`Catalog ${cat.title || cat.fileUrl || ''} missing metadata (type or size)`);
+            continue;
+          }
+
           try {
             await supplierAddProductCatalogue(data.id, {
-              title: catalogFileName || 'Catalogue',
-              fileUrl: uploadedCatalogUrl || undefined,
-              assetId: catalogAssetId || undefined,
-              fileType: uploadedCatalogType || undefined,
-              fileSize: uploadedCatalogSize || undefined,
+              title: cat.title || 'Catalogue',
+              fileUrl: cat.fileUrl || undefined,
+              assetId: cat.assetId || undefined,
+              fileType: cat.fileType,
+              fileSize: cat.fileSize as number,
             });
-          } catch (err) {
+          } catch (err: any) {
             console.error('catalog attach error', err);
-            throw err; // bubble up so outer catch handles it
+            const msg = err?.message || err?.response?.data?.message || 'Unknown';
+            catalogErrors.push(`Failed to attach ${cat.title || cat.fileUrl || ''}: ${msg}`);
           }
+        }
+
+        if (catalogErrors.length > 0) {
+          // surface a single consolidated message instead of multiple alerts
+          throw new Error('Catalog attach errors: ' + catalogErrors.join('; '));
         }
 
         // Refresh queries
@@ -245,7 +253,7 @@ export default function SupplierProductForm({
     // Add to files
     setNewImageFiles((prev) => [...prev, ...picked]);
 
-    // Upload each
+    // Upload each sequentially; remove from newImageFiles when uploaded so previews update
     for (const file of picked) {
       try {
         const res = await uploadImageM.mutateAsync(file);
@@ -253,8 +261,12 @@ export default function SupplierProductForm({
         if (url) {
           setUploadedImageUrls((prev) => [...prev, url]);
         }
+        // remove this file from pending newImageFiles so its preview is removed
+        setNewImageFiles((prev) => prev.filter((f) => f !== file));
       } catch (err) {
         setImageUploadError(`Failed to upload ${file.name}`);
+        // remove failed file from pending list as well
+        setNewImageFiles((prev) => prev.filter((f) => f !== file));
       }
     }
   };
@@ -277,46 +289,83 @@ export default function SupplierProductForm({
     try {
       const res = await uploadCatalogM.mutateAsync(file);
       const url = toAbsoluteUrl(res.url);
-      if (url) {
-        setUploadedCatalogUrl(url);
-        setCatalogFileName(file.name);
-      }
+      const entry: any = { title: file.name };
+      if (url) entry.fileUrl = url;
+      if (res.assetId) entry.assetId = res.assetId;
+      entry.fileType = file.type || res.fileType || null;
+      entry.fileSize = file.size || res.fileSize || null;
+      setUploadedCatalogs((prev) => [...prev, entry]);
+      setCatalogFileName(file.name);
     } catch (err) {
       setCatalogUploadError(`Failed to upload ${file.name}`);
     }
   };
 
-  const removeImage = (idx: number) => {
-    if (idx < imageUrls.length) {
-      // Remove existing image - note: doesn't delete from DB in this form
-      setImageUrls((prev) => prev.filter((_, i) => i !== idx));
+  const removeImage = async (idx: number) => {
+    // If index is within existingImages, delete via API
+    const E = existingImages.length;
+    const U = uploadedImageUrls.length;
+    if (idx < E) {
+      const image = existingImages[idx];
+      if (!productId) {
+        // just remove locally if no productId available
+        setExistingImages((prev) => prev.filter((_, i) => i !== idx));
+        return;
+      }
+      try {
+        await supplierDeleteProductImage(productId, image.id);
+        setExistingImages((prev) => prev.filter((_, i) => i !== idx));
+      } catch (err) {
+        console.error('Failed to delete image', err);
+        alert('Failed to delete image');
+      }
+    } else if (idx < E + U) {
+      // Remove from uploaded images (not yet attached to product)
+      const uploadedIdx = idx - E;
+      setUploadedImageUrls((prev) => prev.filter((_, i) => i !== uploadedIdx));
     } else {
-      // Remove newly uploaded
-      const newIdx = idx - imageUrls.length;
+      // Remove pending local preview
+      const newIdx = idx - E - U;
       setNewImageFiles((prev) => prev.filter((_, i) => i !== newIdx));
       setNewImagePreviews((prev) => prev.filter((_, i) => i !== newIdx));
-      setUploadedImageUrls((prev) => prev.filter((_, i) => i !== newIdx));
     }
   };
 
-  const removeCatalog = (idx: number) => {
-    if (idx < catalogs.length) {
-      setCatalogs((prev) => prev.filter((_, i) => i !== idx));
-    } else {
-      setUploadedCatalogUrl(null);
-      setCatalogAssetId(null);
+  const removeCatalog = async (idx: number) => {
+    const existingCount = catalogs.length;
+    const uploadedCount = uploadedCatalogs.length;
+
+    if (idx < existingCount) {
+      // delete existing catalog on server
+      const cat = catalogs[idx];
+      if (!productId) {
+        setCatalogs((prev) => prev.filter((_, i) => i !== idx));
+        return;
+      }
+      try {
+        await supplierDeleteProductCatalogue(productId, cat.id);
+        setCatalogs((prev) => prev.filter((_, i) => i !== idx));
+      } catch (err) {
+        console.error('Failed to delete catalog', err);
+        alert('Failed to delete catalog');
+      }
+    } else if (idx < existingCount + uploadedCount) {
+      // remove one of the uploaded-but-not-attached catalogs
+      const uploadedIdx = idx - existingCount;
+      setUploadedCatalogs((prev) => prev.filter((_, i) => i !== uploadedIdx));
+      // clear filename if it matched
       setCatalogFileName('');
-      setUploadedCatalogType(null);
-      setUploadedCatalogSize(null);
+    } else {
+      // nothing
     }
   };
 
   if (!isOpen) return null;
 
-  const allImageUrls = [...imageUrls, ...newImagePreviews];
+  const allImageUrls = [...existingImages.map((i) => i.url), ...uploadedImageUrls, ...newImagePreviews];
   const allCatalogs = [
     ...catalogs,
-    ...(uploadedCatalogUrl ? [{ title: catalogFileName, fileUrl: uploadedCatalogUrl }] : []),
+    ...uploadedCatalogs.map((c) => ({ title: c.title || catalogFileName || 'Catalogue', fileUrl: c.fileUrl })),
   ];
 
   const canSubmit = name.trim().length > 0;
@@ -406,8 +455,9 @@ export default function SupplierProductForm({
                 onChange={(e) => setStatus(e.target.value as any)}
                 className="w-full px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800 outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
               >
-                <option value="DRAFT">Draft</option>
-                <option value="PUBLISHED">Published</option>
+                  <option value="OUT_OF_STOCK">Out of stock</option>
+                  <option value="IN_STOCK">In Stock</option>
+                  <option value="ARCHIVED">Archive</option>
               </select>
             </div>
           </div>

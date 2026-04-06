@@ -53,7 +53,7 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
-  const [status, setStatus] = useState<'DRAFT' | 'PUBLISHED' | 'ARCHIVED'>('DRAFT');
+  const [status, setStatus] = useState<'OUT_OF_STOCK' | 'IN_STOCK' | 'ARCHIVED'>('OUT_OF_STOCK');
   const [adminRating, setAdminRating] = useState(0);
   const [categoryId, setCategoryId] = useState('');
 
@@ -90,7 +90,7 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
       setName(product.name || '');
       setDescription(product.description || '');
       setPrice(product.price ? String(product.price) : '');
-      setStatus(product.status || 'DRAFT');
+      setStatus(product.status || 'OUT_OF_STOCK');
       const ratingVal = product.adminRating ? parseFloat(String(product.adminRating)) : 0;
       setAdminRating(isNaN(ratingVal) ? 0 : ratingVal);
       setImageUrls(product.images?.map((img: any) => img.url) || []);
@@ -147,7 +147,7 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
         status,
         imageUrls: allImageUrls,
         catalogs: allCatalogs,
-        categoryId: categoryId || undefined,
+        categoryId: categoryId,
       };
       return adminUpdateProduct(productId, updatePayload);
     },
@@ -351,9 +351,9 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
                     disabled={!isEditMode}
                     className="w-full px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    <option>DRAFT</option>
-                    <option>PUBLISHED</option>
-                    <option>ARCHIVED</option>
+                      <option value="OUT_OF_STOCK">Out of stock</option>
+                    <option value="IN_STOCK">In Stock</option>
+                    <option value="ARCHIVED">Archive</option>
                   </select>
                 </div>
               </div>

@@ -8,6 +8,7 @@ import api from '@/lib/apiClient';
 import { useProductViewTracking } from '@/lib/useProductViewTracking';
 import { ChevronRight, Download, MapPin, Phone, Mail, ExternalLink, X, Send } from 'lucide-react';
 import { getProductReviews, createProductReview, createAnonymousProductReview, createCompanyReview } from '@/lib/adminApi';
+import { userVisibleProductStatus } from '@/lib/productStatus';
 import { isLoggedIn, getMe } from '@/lib/auth';
 
 function toAbsoluteUrl(url?: string) {
@@ -46,9 +47,6 @@ export default function ProductDetailPage() {
   const router = useRouter();
   const loggedIn = isLoggedIn();
 
-  // Track product view after 30 seconds
-  useProductViewTracking(productQ.data?.id);
-
   // fetch role for logged-in users so we can prevent COMPANY-role (supplier) from submitting reviews
   useEffect(() => {
     let mounted = true;
@@ -75,6 +73,9 @@ export default function ProductDetailPage() {
     },
     enabled: !!slug,
   });
+
+  // Track product view after 30 seconds
+  useProductViewTracking(productQ.data?.id);
 
   // Fetch reviews
   const reviewsQ = useQuery({
@@ -265,6 +266,10 @@ export default function ProductDetailPage() {
               </p>
             )}
 
+            <p className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold mb-2 bg-slate-100 text-slate-700">
+              {userVisibleProductStatus(product.status)}
+            </p>
+
             {/* Title */}
             <h1 className="text-3xl font-bold text-slate-900">{product.name}</h1>
 
@@ -323,24 +328,26 @@ export default function ProductDetailPage() {
                   Supplier
                 </p>
                 <div className="flex items-start gap-3">
-                  {company.logoUrl ? (
-                    <img
-                      src={toAbsoluteUrl(company.logoUrl)}
-                      alt={company.name}
-                      className="h-12 w-12 rounded-lg object-cover flex-shrink-0"
-                    />
-                  ) : (
-                    <div className="h-12 w-12 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 font-bold flex-shrink-0">
-                      {company.name.charAt(0)}
-                    </div>
-                  )}
+                  <div className="relative flex-shrink-0">
+                    {company.logoUrl ? (
+                      <img
+                        src={toAbsoluteUrl(company.logoUrl)}
+                        alt={company.name}
+                        className="h-12 w-12 rounded-lg object-cover"
+                      />
+                    ) : (
+                      <div className="h-12 w-12 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 font-bold">
+                        {company.name.charAt(0)}
+                      </div>
+                    )}
+                    {company.hasBadge && (
+                      <div className="absolute -bottom-1 -right-1 h-5 w-5 bg-blue-500 rounded-full border-2 border-white flex items-center justify-center">
+                        <span className="material-symbols-outlined text-white text-sm" style={{ fontVariationSettings: `"FILL" 1` }}>check</span>
+                      </div>
+                    )}
+                  </div>
                   <div className="flex-1 min-w-0">
                     <h4 className="font-bold text-slate-900 truncate">{company.name}</h4>
-                    {company.status && (
-                      <p className="text-xs text-green-600 font-semibold">
-                        ✓ Verified Supplier
-                      </p>
-                    )}
                     {company.adminRating && company.adminRating > 0 && (
                       <p className="text-xs text-amber-600 mt-1">⭐ {parseFloat(company.adminRating).toFixed(1)}</p>
                     )}

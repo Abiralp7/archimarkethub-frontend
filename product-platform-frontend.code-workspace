@@ -5,6 +5,7 @@
 		}
 	],
 	"settings": {
-		"liveServer.settings.multiRootWorkspaceName": "product-platform-frontend"
+		"liveServer.settings.multiRootWorkspaceName": "product-platform-backend",
+		"liveServer.settings.port": 5501
 	}
 }

@@ -1,603 +1,504 @@
-'use client';
+"use client";
 
-import { useEffect, useState, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  supplierGetApplicationStatus,
-  supplierGetMe,
-  supplierUpdateMe,
-  adminUploadFile,
-} from '@/lib/adminApi';
+import { supplierGetApplicationStatus, supplierGetMe, supplierUpdateMe, adminUploadFile, UploadPurpose } from '@/lib/adminApi';
 import { COUNTRIES } from '@/lib/countries';
-import { CheckCircle2, Clock, XCircle, Upload, Edit2, FileText, X } from 'lucide-react';
+import Link from 'next/link';
+import CompanyLogoBadge from '@/components/supplier/CompanyLogoBadge';
+
+function StatusCard({ status, message }: { status: string; message?: string }) {
+  const color = status === 'VERIFIED' ? 'emerald' : status === 'REJECTED' ? 'rose' : 'amber';
+  return (
+    <div className="bg-white rounded-lg shadow p-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">Application Status</h2>
+          <p className={`text-${color}-600 mt-1`}>{status}</p>
+        </div>
+      </div>
+      {message && <p className="text-sm text-slate-600 mt-3">{message}</p>}
+    </div>
+  );
+}
 
 export default function ApplicationStatusPage() {
-  const [isMounted, setIsMounted] = useState(false);
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const search = useSearchParams();
   const qc = useQueryClient();
+  const [isEditOpen, setIsEditOpen] = useState(false);
 
-  const statusQ = useQuery(
-    ['supplier', 'application-status'],
-    async () => {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-      console.log('application-status fetch token', token);
-      return supplierGetApplicationStatus();
-    },
-    {
-      staleTime: 0,
-      cacheTime: 1000 * 60 * 5,
-      refetchInterval: 5000, // poll so we act quickly when admin updates status
-      enabled: isMounted && typeof window !== 'undefined' && !!localStorage.getItem('access_token'),
+  const { data: statusData, isLoading: statusLoading } = useQuery({ queryKey: ['supplier', 'application-status'], queryFn: () => supplierGetApplicationStatus() });
+  const { data: me, isLoading: meLoading } = useQuery({ 
+    queryKey: ['supplier', 'me'], 
+    queryFn: () => supplierGetMe(),
+    refetchInterval: 2000, // Poll every 2 seconds to check for status changes
+    refetchIntervalInBackground: true, // Continue polling even if tab is in background
+  });
+
+  const showEdit = me?.status !== 'VERIFIED';
+
+  useEffect(() => {
+    if (search?.get('edit') === 'true') setIsEditOpen(true);
+  }, [search]);
+
+  // Redirect to dashboard when supplier is verified
+  useEffect(() => {
+    if (me?.status === 'VERIFIED') {
+      router.push('/supplier/dashboard');
     }
-  );
+  }, [me?.status, router]);
 
-  // fetch current company/supplier profile (used for editing)
-  const meQ = useQuery(
-    ['supplier', 'me'],
-    supplierGetMe,
-    { enabled: isMounted && !!localStorage.getItem('access_token'), staleTime: 0, cacheTime: 1000 * 60 * 5, refetchInterval: 5000 }
-  );
-
-  // editing state
-  const [isEditing, setIsEditing] = useState(false);
-  const [companyName, setCompanyName] = useState('');
-  const [countryCode, setCountryCode] = useState('+1');
-  const [contactNumber, setContactNumber] = useState('');
-  const [address, setAddress] = useState('');
-  const [website, setWebsite] = useState('');
-  const [description, setDescription] = useState('');
-  const [logoFile, setLogoFile] = useState<File | null>(null);
-  const [logoUrl, setLogoUrl] = useState('');
-  const [logoUploading, setLogoUploading] = useState(false);
-  const [legalFiles, setLegalFiles] = useState<File[]>([]);
-  const [legalDocUrls, setLegalDocUrls] = useState<string[]>([]);
-  const [legalUploadErrors, setLegalUploadErrors] = useState<string | null>(null);
-  const [legalUploadingCount, setLegalUploadingCount] = useState(0);
-  const legalInputRef = useRef<HTMLInputElement | null>(null);
-  const [error, setError] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
-
-  const updateMeM = useMutation({
-    mutationFn: supplierUpdateMe,
-    onSuccess: (data: any) => {
-      qc.invalidateQueries({ queryKey: ['supplier', 'me'] });
-      setIsEditing(false);
-      setError('');
-      setSuccessMsg('Profile updated successfully.');
-    },
-    onError: (err: any) => {
-      console.error('supplierUpdateMe error', err);
-      const serverMsg = err?.response?.data?.message || err?.message;
-      setError(serverMsg || 'Update failed.');
+  const updateM = useMutation({
+    mutationFn: async (payload: any) => supplierUpdateMe(payload),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['supplier', 'me'] });
+      await qc.invalidateQueries({ queryKey: ['supplier', 'application-status'] });
+      setIsEditOpen(false);
     },
   });
 
-  // when profile data loads populate form
+  const uploadFile = async (file: File, purpose: UploadPurpose) => {
+    const res = await adminUploadFile({ file, purpose });
+    return res.url ?? res;
+  };
+
+  // local edit form state
+  const [name, setName] = useState('');
+  const [website, setWebsite] = useState('');
+  const [description, setDescription] = useState('');
+  const [countryCode, setCountryCode] = useState('+1');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [address, setAddress] = useState('');
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoUrl, setLogoUrl] = useState('');
+  const [legalFiles, setLegalFiles] = useState<File[]>([]);
+  const [legalUrls, setLegalUrls] = useState<string[]>([]);
+  const [ownerEmailLocal, setOwnerEmailLocal] = useState('');
+  const [ownerEmailError, setOwnerEmailError] = useState('');
+
   useEffect(() => {
-    if (meQ.data) {
-      setCompanyName(meQ.data.name || '');
-      // split phone into code+number if possible
-      if (meQ.data.phoneNumber) {
-        const m = meQ.data.phoneNumber.match(/^(\+\d{1,4})(.*)$/);
-        if (m) {
-          setCountryCode(m[1]);
-          setContactNumber(m[2]);
-        } else {
-          setContactNumber(meQ.data.phoneNumber);
-        }
+    if (me) {
+      setName(me.name || '');
+      setWebsite(me.website || '');
+      setDescription(me.description || '');
+      setCountryCode(me.countryCode || '+1');
+      setPhoneNumber(me.phoneNumber || '');
+      setAddress(me.businessAddress || '');
+      setLogoUrl(me.logoUrl || '');
+      setLegalUrls(me.legalDocUrls || []);
+      setOwnerEmailLocal(me.owner?.email || '');
+    }
+  }, [me]);
+
+  const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setLogoFile(f);
+    try {
+      const url = await uploadFile(f, 'COMPANY_LOGO');
+      setLogoUrl(url);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleLegalChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    const picked = Array.from(files);
+    setLegalFiles((p) => [...p, ...picked]);
+    for (const f of picked) {
+      try {
+        const url = await uploadFile(f, 'COMPANY_DOCS');
+        setLegalUrls((p) => [...p, url]);
+      } catch (err) {
+        console.error('legal upload failed', err);
       }
-      setAddress(meQ.data.businessAddress || '');
-      setWebsite(meQ.data.website || '');
-      setDescription(meQ.data.description || '');
-      setLogoUrl(meQ.data.logoUrl || '');
-      setLegalDocUrls(meQ.data.legalDocUrls || []);
-    }
-  }, [meQ.data]);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  // open edit modal automatically if we were linked here with ?edit=true
-  useEffect(() => {
-    if (searchParams.get('edit') === 'true') {
-      setIsEditing(true);
-      // clear the flag from the url so refreshing won't reopen the modal
-      router.replace('/supplier/application-status', { scroll: false });
-    }
-  }, [searchParams, router]);
-
-  const status = statusQ.data?.status?.toUpperCase() || 'PENDING';
-  const message = statusQ.data?.message || '';
-
-  // if application has been approved while we're on this page, send user to dashboard automatically
-  useEffect(() => {
-    if (status === 'VERIFIED' || status === 'APPROVED') {
-      router.push('/supplier/dashboard');
-    }
-  }, [status, router]);
-
-  if (!isMounted) return null;
-
-  const getStatusDisplay = () => {
-    switch (status) {
-      case 'VERIFIED':
-      case 'verified':
-        return {
-          icon: CheckCircle2,
-          color: 'emerald',
-          title: 'Application Approved',
-          description: 'Congratulations! Your company has been verified and approved by our team. You can now access your supplier dashboard to upload products.',
-          subtext: 'You can now add your products to the MaterialHub platform.',
-          buttonText: 'Go to Supplier Dashboard',
-          buttonLink: '/supplier/dashboard',
-          showWaitingMessage: false,
-          showActionButton: true,
-        };
-      case 'REJECTED':
-      case 'rejected':
-        return {
-          icon: XCircle,
-          color: 'rose',
-          title: 'Application Rejected',
-          description: message ||
-            'Unfortunately, your application could not be approved at this time. Please review the feedback below and contact our support team for more information.',
-          subtext: 'You can reapply after addressing the issues mentioned.',
-          buttonText: 'Contact Support',
-          buttonLink: '#',
-          showWaitingMessage: false,
-          showActionButton: true,
-        };
-      default:
-        return {
-          icon: Clock,
-          color: 'blue',
-          title: 'Application Under Review',
-          description: 'Thank you for your interest in joining MaterialHub. Our team is currently verifying your company details and legal documents. This typically takes 1-2 business days.',
-          subtext: 'Start preparing your product catalog in CSV format. This will help you launch your storefront immediately once your application is approved.',
-          buttonText: 'View Catalog Guidelines',
-          buttonLink: '#',
-          showWaitingMessage: true,
-          showActionButton: false,
-        };
     }
   };
 
-  const display = getStatusDisplay();
-  const Icon = display.icon;
-  const colorClasses = {
-    emerald: 'bg-emerald-100 text-emerald-600',
-    rose: 'bg-rose-100 text-rose-600',
-    blue: 'bg-blue-100 text-blue-600',
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    // validate owner email locally (not sent to backend)
+    if (ownerEmailLocal && !/^\S+@\S+\.\S+$/.test(ownerEmailLocal)) {
+      setOwnerEmailError('Enter a valid email.');
+      return;
+    }
+
+    const payload: any = {
+      name: name.trim() || undefined,
+      website: website.trim() ? `${website.trim().startsWith('http') ? '' : 'https://'}${website.trim()}` : undefined,
+      description: description.trim() || undefined,
+      countryCode: countryCode || undefined,
+      phoneNumber: phoneNumber || undefined,
+      businessAddress: address || undefined,
+      logoUrl: logoUrl || undefined,
+      legalDocUrls: legalUrls.length ? legalUrls : undefined,
+    };
+    updateM.mutate(payload);
   };
 
+  
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white flex flex-col">
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-40">
-        <div className="max-w-2xl mx-auto flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2 text-blue-600 hover:opacity-80 transition-opacity">
-            <div className="size-6">
-              <svg fill="currentColor" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-                <path d="M24 18.4228L42 11.475V34.3663C42 34.7796 41.7457 35.1504 41.3601 35.2992L24 42V18.4228Z" />
-                <path d="M24 8.18819L33.4123 11.574L24 15.2071L14.5877 11.574L24 8.18819ZM9 15.8487L21 20.4805V37.6263L9 32.9945V15.8487ZM27 37.6263V20.4805L39 15.8487V32.9945L27 37.6263ZM25.354 2.29885C24.4788 1.98402 23.5212 1.98402 22.646 2.29885L4.98454 8.65208C3.7939 9.08038 3 10.2097 3 11.475V34.3663C3 36.0196 4.01719 37.5026 5.55962 38.098L22.9197 44.7987C23.6149 45.0671 24.3851 45.0671 25.0803 44.7987L42.4404 38.098C43.9828 37.5026 45 36.0196 45 34.3663V11.475C45 10.2097 44.2061 9.08038 43.0155 8.65208L25.354 2.29885Z" />
-              </svg>
+    <div className="bg-surface min-h-screen text-on-surface antialiased">
+      <header className="bg-surface-bright dark:bg-slate-900 shadow-sm border-b border-slate-100 dark:border-slate-800 sticky top-0 z-50">
+        <div className="flex justify-between items-center px-8 py-4 max-w-[1440px] mx-auto">
+          <div className="flex items-center gap-8">
+            <div className="text-xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
+              <span className="bg-primary text-white p-1 rounded-lg">
+                <span className="material-symbols-outlined block">architecture</span>
+              </span>
+              MaterialHub
             </div>
-            <span className="font-bold text-slate-900">MaterialHub</span>
-          </Link>
-          <Link href="/supplier-login" className="text-sm text-slate-600 hover:text-slate-900 font-semibold">
-            Back to Login
-          </Link>
+          </div>
+          <div className="flex items-center gap-4">
+            <Link href="/" className="hidden sm:inline-flex items-center gap-2 px-4 py-2 text-on-surface-variant font-medium hover:bg-surface-container-low transition-colors rounded-xl border border-outline-variant">
+              <span className="material-symbols-outlined text-lg">arrow_back</span>
+              Back to Home
+            </Link>
+            <button className="flex items-center gap-2 px-4 py-2 bg-primary text-white font-bold shadow-md hover:shadow-lg transition-all rounded-xl">
+              <span className="material-symbols-outlined text-lg">support_agent</span>
+              Contact Support
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 flex items-center justify-center px-6 py-12">
-        <div className="w-full max-w-md">
-          {successMsg && (
-            <div className="mb-4 text-sm text-emerald-600 text-center">
-              {successMsg}
+      <main className="max-w-5xl mx-auto px-8 py-16">
+        <section className="mb-10">
+          <div className="bg-primary/5 border border-primary/20 p-5 rounded-xl flex items-center gap-4">
+            <div className="bg-primary/10 p-2 rounded-full flex-shrink-0">
+              <span className="material-symbols-outlined text-primary" style={{ fontVariationSettings: `"FILL" 1` }}>info</span>
             </div>
-          )}
-          {/* Icon */}
-          <div className="flex justify-center mb-8">
-            <div className={`h-20 w-20 rounded-full flex items-center justify-center mb-4 ${colorClasses[display.color as keyof typeof colorClasses]}`}>
-              <Icon className="h-10 w-10" />
+            <div>
+              <h2 className="font-bold text-on-surface">Account Under Review</h2>
+              <p className="text-on-surface-variant text-sm">Our team is currently verifying your information. This typically takes 1-2 business days.</p>
             </div>
           </div>
+        </section>
 
-          {/* Title & Description */}
-          <h1 className="text-3xl font-bold text-center text-slate-900 mb-4">
-            {display.title}
-          </h1>
-
-          <p className="text-center text-slate-600 text-sm mb-8">
-            {display.description}
-          </p>
-
-          {/* Waiting Message */}
-          {display.showWaitingMessage && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
-              <p className="text-sm font-bold text-blue-900 mb-2">⏱️ While you wait…</p>
-              <p className="text-sm text-blue-800 mb-4">
-                Start preparing your product catalog in a CSV format. This will help you launch your storefront immediately once your application is approved.
-              </p>
-              <div>
-                <button
-                  onClick={async () => {
-                    try {
-                      const result = await statusQ.refetch();
-                      // Check the result from refetch
-                      if (result?.data) {
-                        const updatedStatus = (result.data.status || '').toUpperCase();
-                        if (updatedStatus === 'VERIFIED') {
-                          router.push('/supplier/dashboard');
-                        }
-                      }
-                    } catch (err: any) {
-                      // If unauthorized, user session might be expired
-                      if (err?.response?.status === 401) {
-                        // Refresh the page to force re-login prompt
-                        window.location.reload();
-                      }
-                    }
-                  }}
-                  className="text-sm text-blue-600 font-semibold hover:underline bg-white px-3 py-1 rounded"
-                >
-                  Refresh Status
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Action Buttons */}
-          <div className="space-y-3">
-            {display.showActionButton && (
-              <a
-                href={display.buttonLink}
-                className="block w-full px-6 py-3 bg-blue-600 text-white text-center rounded-lg font-bold hover:bg-blue-700 transition-colors"
-              >
-                {display.buttonText}
-              </a>
-            )}
-            {/* show current profile details so supplier can verify what has been submitted */}
-            {meQ.data && (
-              <div className="mt-6 bg-white rounded-lg border border-slate-200 p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-slate-700">Your Profile</h3>
-                <button
-                  type="button"
-                  onClick={() => setIsEditing(true)}
-                  className="text-slate-500 hover:text-slate-700"
-                  title="Edit company information"
-                >
-                  <Edit2 className="w-4 h-4" />
-                </button>
-              </div>
-                <p className="text-xs text-slate-600">Name: <span className="font-medium">{meQ.data.name}</span></p>
-                <p className="text-xs text-slate-600">Phone: <span className="font-medium">{meQ.data.phoneNumber}</span></p>
-                {meQ.data.website && (
-                  <p className="text-xs text-slate-600">
-                    Website: <span className="font-medium">{meQ.data.website}</span>
-                  </p>
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
+          <section className="md:col-span-12 lg:col-span-8">
+            <div className="bg-surface-bright shadow-xl rounded-xl overflow-hidden border border-slate-100">
+              <div className="px-10 py-8 flex justify-between items-center border-b border-slate-50">
+                <h3 className="text-lg font-bold text-on-surface flex items-center gap-2">
+                  <span className="material-symbols-outlined text-primary">business</span>
+                  Company Profile
+                </h3>
+                {showEdit && (
+                  <button onClick={() => setIsEditOpen(true)} className="text-primary font-semibold text-sm hover:underline flex items-center gap-1">
+                    <span className="material-symbols-outlined text-sm">edit</span>
+                    Edit
+                  </button>
                 )}
-                {meQ.data.businessAddress && (
-                  <p className="text-xs text-slate-600">
-                    Address: <span className="font-medium">{meQ.data.businessAddress}</span>
-                  </p>
-                )}
-                {meQ.data.description && (
-                  <p className="text-xs text-slate-600">
-                    Description: <span className="font-medium break-words">{meQ.data.description}</span>
-                  </p>
-                )}
-
               </div>
-            )}
-
-            <Link
-              href="/"
-              className="block w-full px-6 py-3 border border-slate-200 text-slate-900 text-center rounded-lg font-bold hover:bg-slate-50 transition-colors"
-            >
-              🏠 Return to Home
-            </Link>
-          </div>
-
-          {/* Help Text */}
-          <p className="text-center text-slate-600 text-xs mt-8">
-            Need help? Visit our{' '}
-            <a href="#" className="text-blue-600 hover:underline font-semibold">
-              Help Center
-            </a>
-            {' '}or email us at{' '}
-            <a href="mailto:support@materialhub.com" className="text-blue-600 hover:underline font-semibold">
-              support@materialhub.com
-            </a>
-          </p>
-
-          {/* Edit form modal/section */}
-          {isEditing && (
-            <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg max-w-xl w-full p-6 relative">
-                <button
-                  onClick={() => setIsEditing(false)}
-                  className="absolute top-3 right-3 text-slate-500 hover:text-slate-700"
-                >
-                  ✖
-                </button>
-                <h2 className="text-xl font-bold mb-4">Edit Company Information</h2>
-                {error && <p className="text-sm text-rose-600 mb-2">{error}</p>}
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    // normalize website and phone
-                    const normalizedWebsite = website.trim()
-                      ? `${website.trim().startsWith('http') ? '' : 'https://'}${website.trim()}`
-                      : undefined;
-                    const fullPhone = contactNumber
-                      ? `${countryCode}${contactNumber}`
-                      : undefined;
-                    updateMeM.mutate({
-                      name: companyName || undefined,
-                      description: description || undefined,
-                      website: normalizedWebsite || undefined,
-                      logoUrl: logoUrl || undefined,
-                      phoneNumber: fullPhone || undefined,
-                      countryCode: countryCode || undefined,
-                      legalDocUrls: legalDocUrls.length ? legalDocUrls : undefined,
-                      businessAddress: address || undefined,
-                    });
-                  }}
-                  className="space-y-4 overflow-y-auto max-h-[80vh]"
-                >
-                  {/* Logo */}
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-900 mb-2">
-                      Company Logo
-                    </label>
-                    <div className="flex items-center gap-4">
-                      {logoUrl ? (
-                        <img src={logoUrl} className="h-12 w-12 rounded" />
-                      ) : (
-                        <div className="h-12 w-12 bg-slate-100 rounded flex items-center justify-center">
-                          <Upload className="h-6 w-6 text-slate-400" />
-                        </div>
-                      )}
-                      <label className="cursor-pointer text-blue-600 hover:underline">
-                        Change
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            setLogoFile(file);
-                            setLogoUploading(true);
-                            try {
-                              const url = await adminUploadFile({ file, purpose: 'COMPANY_LOGO' });
-                              let finalUrl = url.url;
-                              if (finalUrl && !/^https?:\/\//i.test(finalUrl) && typeof window !== 'undefined') {
-                                finalUrl = window.location.origin + finalUrl;
-                              }
-                              setLogoUrl(finalUrl);
-                            } catch (err) {
-                              setError('Failed to upload logo');
-                            } finally {
-                              setLogoUploading(false);
-                            }
-                          }}
-                        />
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* legal docs */}
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-900 mb-2">
-                      Legal Documents
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => legalInputRef.current?.click()}
-                      className="w-full border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-8 flex flex-col items-center justify-center bg-slate-50/30 cursor-pointer"
-                      disabled={legalUploadErrors !== null}
-                    >
-                      <div className="h-10 w-10 bg-white dark:bg-slate-800 rounded-lg shadow-sm flex items-center justify-center mb-3">
-                        <Upload className="h-5 w-5 text-slate-400" />
-                      </div>
-                      <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Click to upload or drag and drop</p>
-                      <p className="text-xs text-slate-400 mt-1">PDF, PNG, or JPG (max. 10MB per file)</p>
-                    </button>
-                    <input
-                      ref={legalInputRef}
-                      type="file"
-                      multiple
-                      className="hidden"
-                      accept=".pdf,.png,.jpg,.jpeg"
-                      onChange={async (e) => {
-                        const files = e.target.files;
-                        if (!files) return;
-                        setLegalUploadErrors(null);
-                        const picked = Array.from(files);
-                        for (const f of picked) {
-                          if (!/^application\/pdf$/.test(f.type) && !/^image\//.test(f.type)) {
-                            setLegalUploadErrors(`Invalid file type: ${f.name}`);
-                            return;
-                          }
-                          if (f.size > 10 * 1024 * 1024) {
-                            setLegalUploadErrors(`File too large: ${f.name}`);
-                            return;
-                          }
-                        }
-                        setLegalFiles((prev) => [...prev, ...picked]);
-                        for (const f of picked) {
-                          try {
-                            setLegalUploadingCount((c) => c + 1);
-                            const res = await adminUploadFile({ file: f, purpose: 'COMPANY_DOCS' });
-                            let url = res.url;
-                            if (url && !/^https?:\/\//i.test(url) && typeof window !== 'undefined') {
-                              url = window.location.origin + url;
-                            }
-                            if (url) setLegalDocUrls((prev) => [...prev, url]);
-                          } catch (err) {
-                            console.error('Legal doc upload error', err);
-                            setLegalUploadErrors('Upload failed');
-                          } finally {
-                            setLegalUploadingCount((c) => c - 1);
-                          }
-                        }
-                        e.currentTarget.value = '';
-                      }}
-                    />
-
-                    {legalUploadErrors && (
-                      <div className="text-sm text-rose-600">{legalUploadErrors}</div>
-                    )}
-
-                    {legalFiles.length > 0 && (
-                      <div className="flex flex-col gap-2 mt-3">
-                        {legalFiles.map((f, idx) => (
-                          <div key={`${f.name}-${idx}`} className="flex items-center gap-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/30 w-fit px-3 py-1.5 rounded-lg">
-                            <FileText className="h-4 w-4 text-blue-600" />
-                            <span className="text-xs font-medium text-blue-700 dark:text-blue-400">{f.name}</span>
-                            {legalDocUrls[idx] ? (
-                              <span className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1 ml-2">
-                                <CheckCircle2 className="h-3.5 w-3.5" /> Uploaded
-                              </span>
-                            ) : null}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setLegalFiles((prev) => prev.filter((_, i) => i !== idx));
-                                setLegalDocUrls((prev) => prev.filter((_, i) => i !== idx));
-                              }}
-                              className="ml-2 text-blue-400 hover:text-blue-600"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-900 mb-2">
-                      Company Name
-                    </label>
-                    <input
-                      type="text"
-                      value={companyName}
-                      onChange={(e) => setCompanyName(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-200 rounded"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-900 mb-2">
-                      Contact Number
-                    </label>
-                    <div className="flex gap-2">
-                      <select
-                        value={countryCode}
-                        onChange={(e) => setCountryCode(e.target.value)}
-                        className="w-24 px-3 py-2 border border-slate-200 rounded"
-                      >
-                        {COUNTRIES.map((c) => (
-                          <option key={c.code} value={c.code}>
-                            {c.flag} {c.code}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        type="text"
-                        value={contactNumber}
-                        onChange={(e) => setContactNumber(e.target.value)}
-                        className="flex-1 px-3 py-2 border border-slate-200 rounded"
-                      />
-                    </div>
-                    </div>
-
+              <div className="p-8">
+                <div className="flex flex-col md:flex-row gap-8 items-start">
+                  <CompanyLogoBadge
+                    logoUrl={me?.logoUrl}
+                    name={me?.name}
+                    hasBadge={me?.hasBadge}
+                    size="md"
+                  />
+                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-y-6 gap-x-8">
                     <div>
-                      <label className="block text-sm font-semibold text-slate-900 mb-2">
-                          Address
-                        </label>
-                        <textarea
-                          value={address}
-                          onChange={(e) => setAddress(e.target.value)}
-                          rows={2}
-                          className="w-full px-3 py-2 border border-slate-200 rounded"
-                        />
-                      </div>
+                      <label className="block text-on-surface-variant text-xs font-semibold uppercase tracking-wider mb-1">Company Name</label>
+                      <p className="text-on-surface font-medium">{me?.name || '—'}</p>
+                    </div>
+                    <div>
+                      <label className="block text-on-surface-variant text-xs font-semibold uppercase tracking-wider mb-1">Email Address</label>
+                      <p className="text-on-surface font-medium">{me?.owner?.email || me?.email || '—'}</p>
+                    </div>
+                    <div>
+                      <label className="block text-on-surface-variant text-xs font-semibold uppercase tracking-wider mb-1">Contact Number</label>
+                      <p className="text-on-surface font-medium">{(me?.countryCode || '') + (me?.phoneNumber ? ` ${me.phoneNumber}` : '')}</p>
+                    </div>
+                    {me?.website && (
                       <div>
-                        <label className="block text-sm font-semibold text-slate-900 mb-2">
-                          Website
-                        </label>
-                        <input
-                          type="url"
-                          value={website}
-                          onChange={(e) => setWebsite(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded"
-                        />
-                        {website.trim() && !/^https?:\/\//i.test(website.trim()) && (
-                          <p className="text-xs text-slate-400">
-                            Will be saved as: <span className="font-semibold">https://{website.trim()}</span>
-                          </p>
-                        )}
+                        <label className="block text-on-surface-variant text-xs font-semibold uppercase tracking-wider mb-1">Website URL</label>
+                        <a href={me.website} target="_blank" rel="noopener noreferrer" className="text-primary font-medium hover:underline cursor-pointer break-words">{me.website.replace(/^https?:\/\//, '')}</a>
                       </div>
-<div>
-                          <label className="block text-sm font-semibold text-slate-900 mb-2">
-                            Description
-                          </label>
-                          <textarea
-                            value={description}
-                            onChange={(e) => setDescription(e.target.value)}
-                            rows={3}
-                            className="w-full px-3 py-2 border border-slate-200 rounded"
-                          />
+                    )}
+                    <div className="sm:col-span-2">
+                      <label className="block text-on-surface-variant text-xs font-semibold uppercase tracking-wider mb-1">Physical Address</label>
+                      <p className="text-on-surface font-medium">{me?.businessAddress || '—'}</p>
+                    </div>
+                    {me?.hasBadge && (
+                      <div className="sm:col-span-2 flex items-center gap-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <span className="material-symbols-outlined text-blue-600 text-xl" style={{ fontVariationSettings: `"FILL" 1` }}>verified</span>
+                        <div>
+                          <p className="text-sm font-semibold text-blue-900">Premium Badge</p>
+                          <p className="text-xs text-blue-700">Your company has been awarded a premium badge</p>
                         </div>
-
-                  <div className="flex justify-end gap-2 mt-4">
-                    <button
-                      type="button"
-                      onClick={() => setIsEditing(false)}
-                      className="px-4 py-2 border rounded text-slate-700 hover:bg-slate-50"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={
-                        updateMeM.isLoading ||
-                        logoUploading ||
-                        legalUploadingCount > 0
-                      }
-                      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      {logoUploading || legalUploadingCount > 0
-                        ? 'Uploading...'
-                        : 'Save'}
-                    </button>
+                      </div>
+                    )}
                   </div>
-                </form>
+                </div>
               </div>
             </div>
-          )}
+          </section>
+
+          {/* Badge Section */}
+          <section className="md:col-span-12">
+            <div className="bg-blue-50 border border-blue-200 rounded-xl shadow p-8">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <span className="material-symbols-outlined text-blue-600 text-3xl" style={{ fontVariationSettings: `"FILL" 1` }}>verified</span>
+                  <div>
+                    <h3 className="text-lg font-bold text-blue-900">Premium Badge Status</h3>
+                    <p className="text-sm text-blue-700 mt-1">
+                      {me?.hasBadge
+                        ? '✓ Your company has a premium badge. Users can see this badge on your company profile and products will appear at the top in search results.'
+                        : 'Once the admin awards your company a premium badge, users will see it on your profile.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="md:col-span-12 lg:col-span-4">
+            <div className="bg-surface-bright shadow-xl rounded-xl overflow-hidden border border-slate-100 flex flex-col h-full">
+              <div className="px-8 py-8 flex justify-between items-center border-b border-slate-50">
+                <h3 className="text-lg font-bold text-on-surface flex items-center gap-2">
+                  <span className="material-symbols-outlined text-primary">description</span>
+                  Documents
+                </h3>
+                {showEdit && <button onClick={() => setIsEditOpen(true)} className="text-primary font-semibold text-sm hover:underline">Edit</button>}
+              </div>
+              <div className="p-8 flex-1 flex flex-col gap-4">
+                <label className="block text-on-surface-variant text-xs font-semibold uppercase tracking-wider">Legal Document (PAN/VAT)</label>
+                <div className="bg-surface-container-low p-4 rounded-xl border border-outline-variant flex items-start gap-4">
+                  <div className="bg-white p-2 rounded-lg shadow-sm">
+                    <span className="material-symbols-outlined text-red-500 text-3xl"></span>
+                  </div>
+                    <div className="overflow-hidden">
+                      {(() => {
+                        const url = me?.legalDocUrls?.[0] ?? legalUrls[0];
+                        const name = url ? url.split('/').pop() ?? 'document' : (legalUrls[0] ? legalUrls[0].split('/').pop() : 'No document');
+                        const ext = name.split('.').pop()?.toLowerCase() || '';
+                        return (
+                          <>
+                            <div className="flex items-center gap-3">
+                              {ext === 'pdf' ? (
+                                <span className="material-symbols-outlined text-red-500 text-3xl"></span>
+                              ) : (ext === 'png' || ext === 'jpg' || ext === 'jpeg') ? (
+                                <img src={url ?? ''} alt={name} className="w-10 h-10 object-cover rounded" />
+                              ) : (
+                                <span className="material-symbols-outlined text-slate-500 text-3xl">insert_drive_file</span>
+                              )}
+                              <div>
+                                <p className="text-sm font-bold text-on-surface truncate">{name}</p>
+                                <p className="text-xs text-on-surface-variant mt-1">Uploaded: {url ? new Date().toLocaleDateString() : '—'}</p>
+                              </div>
+                            </div>
+                            <div className="mt-3 flex gap-3">
+                              {url && (
+                                <>
+                                  <a href={url} target="_blank" rel="noreferrer" className="text-xs font-bold text-primary flex items-center gap-1"><span className="material-symbols-outlined text-sm">visibility</span> View</a>
+                                  <a href={url} download className="text-xs font-bold text-primary flex items-center gap-1"><span className="material-symbols-outlined text-sm">download</span> Download</a>
+                                </>
+                              )}
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div className="mt-12 flex justify-center border-t border-slate-100 pt-12">
+          <Link href="/" className="flex items-center gap-3 px-8 py-4 bg-white border border-outline-variant text-on-surface font-bold rounded-xl shadow-sm hover:bg-surface transition-all group">
+            <span className="material-symbols-outlined group-hover:translate-x-[-4px] transition-transform">home</span>
+            Return to Home
+          </Link>
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="bg-slate-50 border-t border-slate-200 px-6 py-6">
-        <div className="max-w-md mx-auto flex items-center justify-center gap-6 text-xs text-slate-600">
-          <a href="#" className="hover:text-slate-900">Help Center</a>
-          <a href="#" className="hover:text-slate-900">Partnership Perks</a>
-          <a href="#" className="hover:text-slate-900">Support</a>
+      <footer className="mt-auto py-12 bg-surface text-center">
+        <p className="text-on-surface-variant text-xs">© 2024 Azure Blueprint | Technical Architectural Solutions. All rights reserved.</p>
+        <div className="flex justify-center gap-6 mt-4">
+          <a className="text-xs text-on-surface-variant hover:text-primary" href="#">Privacy Policy</a>
+          <a className="text-xs text-on-surface-variant hover:text-primary" href="#">Terms of Service</a>
+          <a className="text-xs text-on-surface-variant hover:text-primary" href="#">Compliance</a>
         </div>
       </footer>
+
+      {/* Edit modal - Registration page style */}
+      {isEditOpen && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 overflow-y-auto pt-8 pb-8">
+          <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl">
+            <div className="sticky top-0 flex items-center justify-between px-8 py-6 border-b border-slate-200 bg-white rounded-t-2xl">
+              <h3 className="text-2xl font-bold text-slate-900">Edit Company</h3>
+              <button onClick={() => setIsEditOpen(false)} className="text-slate-600 hover:text-slate-900 font-semibold">Close</button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="p-8 max-h-[calc(100vh-200px)] overflow-y-auto">
+              <div className="space-y-6">
+                {/* Logo Upload Section */}
+                <div>
+                  <h4 className="text-lg font-semibold mb-4">Company Logo</h4>
+                  <div className="border-2 border-dashed rounded-xl p-8 flex items-center justify-center bg-slate-50/50">
+                    <div className="text-center w-full">
+                      <div className="mb-2 text-slate-500">Click to upload or drag and drop</div>
+                      <div className="text-xs text-slate-400">SVG, PNG, JPG (max. 2MB)</div>
+                      <div className="mt-3 flex items-center justify-center gap-4">
+                        <label className="inline-flex items-center gap-3 bg-white border px-4 py-2 rounded-lg cursor-pointer text-sm text-blue-600">
+                          <span className="material-symbols-outlined"></span>
+                          <span>Upload Logo</span>
+                          <input type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
+                        </label>
+                        {logoUrl && (
+                          <div className="flex items-center gap-3">
+                            <CompanyLogoBadge
+                              logoUrl={logoUrl}
+                              name={name}
+                              hasBadge={me?.hasBadge}
+                              size="sm"
+                            />
+                          </div>
+                        )}
+                      </div>
+                      {logoUrl && (
+                        <div className="mt-3 text-sm text-green-600 font-medium">Company logo added</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Company Info Section */}
+                <div>
+                  <h4 className="text-lg font-semibold mb-4">Company Information</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold mb-2">Company Name</label>
+                      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter company name" className="w-full px-4 py-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold mb-2">Website URL</label>
+                      <input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://www.example.com" className="w-full px-4 py-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Description Section */}
+                <div>
+                  <label className="block text-sm font-semibold mb-2">Company Description</label>
+                  <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="Brief description of your company" className="w-full px-4 py-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20" />
+                </div>
+
+                {/* Contact Information Section */}
+                <div>
+                  <h4 className="text-lg font-semibold mb-4">Contact Information</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold mb-2">Country Code</label>
+                      <select value={countryCode} onChange={(e) => setCountryCode(e.target.value)} className="w-full px-4 py-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20">
+                        {COUNTRIES.map((c: any) => (
+                          <option key={`${c.code}-${c.name}`} value={c.code}>{`${c.flag} ${c.name} ${c.code}`}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold mb-2">Phone Number</label>
+                      <input value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} placeholder="123 456 7890" className="w-full px-4 py-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20" />
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <label className="block text-sm font-semibold mb-2">Business Address</label>
+                    <textarea value={address} onChange={(e) => setAddress(e.target.value)} rows={3} placeholder="Building, Street, City, ZIP Code" className="w-full px-4 py-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20" />
+                  </div>
+                </div>
+
+                {/* Owner Email Section */}
+                <div>
+                  <h4 className="text-lg font-semibold mb-4">Account Information</h4>
+                  <div>
+                    <label className="block text-sm font-semibold mb-2">Owner Email</label>
+                    <input value={ownerEmailLocal} readOnly disabled className="w-full px-4 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-600" />
+                    <div className="text-xs text-slate-500 mt-1">Read-only (managed by the account owner)</div>
+                  </div>
+                </div>
+
+                {/* Legal Documents Section */}
+                <div>
+                  <h4 className="text-lg font-semibold mb-4">Legal Documents</h4>
+                  <div className="border-2 border-dashed rounded-xl p-8 flex items-center justify-center bg-slate-50/50">
+                    <div className="text-center w-full">
+                      <div className="mb-2 text-slate-500">Click to upload multiple documents</div>
+                      <div className="text-xs text-slate-400">Upload PAN Card, VAT Certificate, etc. (PDF, JPG, PNG)</div>
+                      <label className="inline-flex items-center gap-3 bg-white border px-4 py-2 rounded-lg cursor-pointer text-sm text-blue-600 mt-3">
+                        <span>Upload Documents</span>
+                        <input type="file" accept=".pdf,.png,.jpg,.jpeg" multiple className="hidden" onChange={handleLegalChange} />
+                      </label>
+                    </div>
+                  </div>
+                  {legalUrls.length > 0 && (
+                    <div className="mt-4">
+                      <div className="text-sm text-green-600 font-medium mb-3">Documents uploaded:</div>
+                      <ul className="space-y-2">
+                        {legalUrls.map((url, idx) => (
+                          <li key={idx} className="text-green-700 flex items-center gap-3">
+                            <span className="material-symbols-outlined text-red-500">picture_as_pdf</span>
+                            <a href={url} target="_blank" rel="noreferrer" className="underline text-xs break-words flex-1">{url.split('/').pop()}</a>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="mt-8 flex items-center gap-3 justify-end">
+                <button type="button" onClick={() => setIsEditOpen(false)} className="px-6 py-3 bg-white border border-slate-200 text-slate-900 font-semibold rounded-2xl hover:bg-slate-50 transition-colors">
+                  Cancel
+                </button>
+                <button type="submit" disabled={updateM.isPending} className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-2xl hover:bg-blue-700 transition-colors shadow-md disabled:opacity-50">
+                  {updateM.isPending ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  if (statusLoading || meLoading) {
+    return <div className="p-8">Loading...</div>;
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+      <div className="max-w-lg w-full">
+        <div className="bg-white rounded-2xl shadow-lg p-10 text-center">
+          <div className="flex items-center justify-center mb-4">
+            <div className="h-16 w-16 bg-blue-50 rounded-full flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4" />
+              </svg>
+            </div>
+          </div>
+          <h2 className="text-2xl font-bold mb-3">Application Under Review</h2>
+          <p className="text-sm text-slate-600 mb-6">Thank you for your interest in joining MaterialHub. Our team is currently verifying your company details and legal documents. This typically takes 1-2 business days.</p>
+
+          <div className="bg-slate-50 border rounded-lg p-4 text-left mb-6">
+            <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">While you wait...</h4>
+            <p className="text-sm text-slate-600 mt-2">Start preparing your product catalog in a CSV format. This will help you launch your storefront immediately once your application is approved. <a className="text-blue-600 underline" href="#">View Catalog Guidelines</a></p>
+          </div>
+
+          <div className="space-y-3">
+            <button className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold">Contact Admin Support</button>
+            <Link href="/" className="text-sm text-slate-600 inline-block">Return to Home</Link>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

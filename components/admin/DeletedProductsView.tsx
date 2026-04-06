@@ -5,6 +5,7 @@ import { Search, Filter, RotateCcw, Trash2, Eye } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import EditProductModal from '@/components/admin/EditProductModal';
 import { adminProducts, adminRestoreProduct, adminDeleteProduct, adminPermanentDeleteProduct } from '@/lib/adminApi';
+import { userVisibleProductStatus, productStatusColor } from '@/lib/productStatus';
 
 function formatDate(input?: string): string {
   if (!input) return '—';
@@ -94,7 +95,7 @@ export default function DeletedProductsView() {
       {/* Page Header */}
       <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-8 py-6">
         <div className="max-w-[1600px] mx-auto">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">
                 Deleted Products
@@ -109,33 +110,28 @@ export default function DeletedProductsView() {
               </span>
             </div>
           </div>
+
+          {/* Search & Filter same style as deleted companies */}
+          <div className="mt-6 flex gap-3">
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search deleted products..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-admin-primary dark:text-white"
+              />
+            </div>
+            <button className="p-2 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+              <Filter className="h-4 w-4 text-slate-600 dark:text-slate-400" />
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="p-8 max-w-[1600px] mx-auto">
-        {/* Search */}
-        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 mb-6">
-          <div className="p-6">
-            <div className="flex items-center gap-3">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Search deleted products..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-admin-primary focus:border-transparent"
-                />
-              </div>
-              <button className="p-2 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                <Filter className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Deleted Products Table */}
-        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
+      {/* Deleted Products Table */}
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden mt-6 mx-8 max-w-[1600px]">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
@@ -194,8 +190,8 @@ export default function DeletedProductsView() {
                         </td>
 
                         <td className="px-6 py-4">
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-slate-50 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
-                            {product.status || 'DRAFT'}
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold ${productStatusColor(product.status)}`}>
+                            {userVisibleProductStatus(product.status)}
                           </span>
                         </td>
 
@@ -246,7 +242,6 @@ export default function DeletedProductsView() {
             </table>
           </div>
         </div>
-      </div>
       {/* Restore Confirmation Dialog */}
       {restoreConfirm && (
         <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">

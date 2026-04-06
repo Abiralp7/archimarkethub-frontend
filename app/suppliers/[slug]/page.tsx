@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Check } from 'lucide-react';
 import {
   getPublicCompany,
   getPublicProducts,
@@ -65,9 +66,9 @@ export default function SupplierPage() {
   });
 
   const productsQ = useQuery({
-    queryKey: ['products', 'public', { companySlug: slug }],
-    queryFn: async () => getPublicProducts({ companySlug: slug, take: 50 } as any),
-    enabled: !!slug,
+    queryKey: ['products', 'public', { companyId: companyQ.data?.id }],
+    queryFn: async () => getPublicProducts({ companyId: companyQ.data?.id, take: 50 }),
+    enabled: !!companyQ.data?.id,
   });
 
   // Fetch combined company + product reviews for this supplier
@@ -165,11 +166,18 @@ export default function SupplierPage() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
         <div className="flex items-start gap-6">
-          {company.logoUrl ? (
-            <img src={company.logoUrl} alt={company.name} className="h-20 w-20 rounded-lg object-cover" />
-          ) : (
-            <div className="h-20 w-20 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 font-bold text-xl">{company.name?.charAt(0)}</div>
-          )}
+          <div className="relative">
+            {company.logoUrl ? (
+              <img src={company.logoUrl} alt={company.name} className="h-20 w-20 rounded-lg object-cover" />
+            ) : (
+              <div className="h-20 w-20 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 font-bold text-xl">{company.name?.charAt(0)}</div>
+            )}
+            {company.hasBadge && (
+              <div className="absolute -bottom-1 -right-1 h-6 w-6 bg-blue-600 rounded-full flex items-center justify-center shadow-lg border-2 border-white">
+                <Check className="w-3 h-3 text-white" strokeWidth={3} />
+              </div>
+            )}
+          </div>
 
           <div className="flex-1">
             <h1 className="text-2xl font-bold text-slate-900">{company.name}</h1>

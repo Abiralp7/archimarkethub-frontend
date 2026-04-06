@@ -1,0 +1,14 @@
+
+> product-platform-frontend@0.0.1 dev
+> next dev -p 3001
+
+  ▲ Next.js 13.5.11
+  - Local:        http://localhost:3001
+  - Environments: .env.local
+
+ ✓ Ready in 1613ms
+ ✓ Compiled /login/page in 2.5s (725 modules)
+ ✓ Compiled in 477ms (332 modules)
+ ✓ Compiled /not-found in 1229ms (716 modules)
+ ✓ Compiled in 788ms (711 modules)
+ ✓ Compiled /not-found in 155ms (716 modules)
