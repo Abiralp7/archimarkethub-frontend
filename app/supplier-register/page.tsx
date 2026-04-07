@@ -324,7 +324,7 @@ export default function SupplierRegisterPage() {
                     </div>
                   </div>
                 </section>
-              )}}
+              )}
 
                 
 

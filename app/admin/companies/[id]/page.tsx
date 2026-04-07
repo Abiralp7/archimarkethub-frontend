@@ -22,6 +22,7 @@ type Company = {
   name: string;
   logo: string;
   domain: string;
+  hasBadge?: boolean;
 };
 
 // Mock products data - replace with actual API call
@@ -114,6 +115,7 @@ export default function CompanyProductsPage() {
     name: 'Loading...',
     logo: 'L',
     domain: 'loading...',
+    hasBadge: false,
   });
 
   useEffect(() => {
@@ -126,6 +128,7 @@ export default function CompanyProductsPage() {
     //       name: data.name,
     //       logo: initials(data.name),
     //       domain: data.domain || data.website || data.slug,
+    //       hasBadge: data.hasBadge || false,
     //     });
     //   });
 
@@ -136,6 +139,7 @@ export default function CompanyProductsPage() {
         name: 'TechFlow Solutions',
         logo: initials('TechFlow Solutions'),
         domain: 'techflow.io',
+        hasBadge: false,
       });
     }, 100);
   }, [companyId]);
