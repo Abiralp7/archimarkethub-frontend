@@ -10,8 +10,13 @@ import { StarRating } from '@/components/StarRating';
 
 import { adminCompanies, adminDeleteCompany, adminUpdateCompanyAdminRating, Company as ApiCompany, CompanyStatus } from '@/lib/adminApi';
 
+/** ============================================================================
+ * TYPES
+ * ============================================================================ */
+
 type UiStatus = 'Verified' | 'Pending' | 'Other';
 
+/** UI representation of a company for list display */
 type UiCompany = {
   id: string;
   name: string;
@@ -26,8 +31,40 @@ type UiCompany = {
   hasBadge?: boolean;
 };
 
+/** ============================================================================
+ * CONSTANTS
+ * ============================================================================ */
+
 const PAGE_SIZE = 100; // backend constraint: take must not be > 100
 
+/** Logo background color options for initials fallback */
+const LOGO_COLORS = [
+  'bg-blue-100 text-blue-700',
+  'bg-amber-100 text-amber-700',
+  'bg-purple-100 text-purple-700',
+  'bg-emerald-100 text-emerald-700',
+  'bg-rose-100 text-rose-700',
+  'bg-orange-100 text-orange-700',
+  'bg-slate-100 text-slate-700',
+  'bg-indigo-100 text-indigo-700',
+] as const;
+
+/** Status badge color mappings */
+const STATUS_BADGE_CLASSES: Record<UiStatus, string> = {
+  Verified: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400',
+  Pending: 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400',
+  Other: 'bg-slate-50 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300',
+};
+
+/** ============================================================================
+ * HELPERS
+ * ============================================================================ */
+
+/**
+ * Format date for display
+ * @param input ISO date string or undefined
+ * @returns Formatted date (short format) or "—"
+ */
 function formatDate(input?: string): string {
   if (!input) return '—';
   const d = new Date(input);
@@ -35,6 +72,11 @@ function formatDate(input?: string): string {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: '2-digit' });
 }
 
+/**
+ * Extract initials from a company name
+ * @param name Company name
+ * @returns Two-character initials (e.g., "TG" for "Techno Green")
+ */
 function initials(name: string): string {
   const parts = String(name || '')
     .trim()
@@ -47,22 +89,22 @@ function initials(name: string): string {
   return out || 'CO';
 }
 
+/**
+ * Pick a consistent background color based on company ID/name
+ * @param seed String to hash (company ID or name)
+ * @returns Tailwind color class
+ */
 function pickLogoColor(seed: string): string {
-  const classes = [
-    'bg-blue-100 text-blue-700',
-    'bg-amber-100 text-amber-700',
-    'bg-purple-100 text-purple-700',
-    'bg-emerald-100 text-emerald-700',
-    'bg-rose-100 text-rose-700',
-    'bg-orange-100 text-orange-700',
-    'bg-slate-100 text-slate-700',
-    'bg-indigo-100 text-indigo-700',
-  ];
   let hash = 0;
   for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-  return classes[hash % classes.length];
+  return LOGO_COLORS[hash % LOGO_COLORS.length];
 }
 
+/**
+ * Convert CompanyStatus from API to display status
+ * @param status API status enum or string
+ * @returns Normalized UiStatus for display
+ */
 function toUiStatus(status?: CompanyStatus): UiStatus {
   const s = String(status ?? '').toUpperCase();
   if (s === 'VERIFIED') return 'Verified';
@@ -70,18 +112,20 @@ function toUiStatus(status?: CompanyStatus): UiStatus {
   return 'Other';
 }
 
+/**
+ * Get badge color class for status
+ * @param status Display status
+ * @returns Tailwind classes for badge styling
+ */
 function badgeClass(status: UiStatus): string {
-  if (status === 'Verified') {
-    return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400';
-  }
-  if (status === 'Pending') {
-    return 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400';
-  }
-  return 'bg-slate-50 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300';
+  return STATUS_BADGE_CLASSES[status];
 }
 
 /**
- * Debounce hook (correctly uses useEffect)
+ * Debounce hook to delay value updates
+ * @param value Value to debounce
+ * @param delayMs Debounce delay in ms
+ * @returns Debounced value
  */
 function useDebouncedValue<T>(value: T, delayMs: number) {
   const [debounced, setDebounced] = useState(value);
@@ -95,11 +139,10 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
 }
 
 /**
- * Normalize API response shapes:
- * - { items, total }
- * - { data: { items, total } }
- * - { results, total }
- * - array of companies
+ * Normalize varied API response shapes to consistent format
+ * Handles: { items, total }, { data: { items, total } }, arrays, etc.
+ * @param res Raw API response
+ * @returns Normalized { items, total }
  */
 function normalizeCompaniesResponse(res: any): { items: ApiCompany[]; total?: number } {
   if (Array.isArray(res)) return { items: res, total: res.length };
@@ -113,6 +156,11 @@ function normalizeCompaniesResponse(res: any): { items: ApiCompany[]; total?: nu
   return { items: safeItems, total: typeof total === 'number' ? total : safeItems.length };
 }
 
+/**
+ * Format error for display (handles axios, fetch, and generic errors)
+ * @param err Caught error of any type
+ * @returns Human-readable error message
+ */
 function getErrorText(err: unknown): string {
   if (!err) return 'Unknown error';
   const anyErr: any = err;
@@ -134,6 +182,17 @@ function getErrorText(err: unknown): string {
   }
 }
 
+/**
+ * CompaniesPage Component
+ *
+ * Displays admin interface for managing companies with:
+ * - Filtering by verification status
+ * - Real-time search with debounce
+ * - Company details table with logo, status, rating
+ * - Badge (premium verification) assignment
+ * - Edit and delete operations
+ * - Active/deleted toggle
+ */
 export default function CompaniesPage() {
   const qc = useQueryClient();
   const [activeFilter, setActiveFilter] = useState<'All' | 'Verified' | 'Pending'>('All');
@@ -145,13 +204,20 @@ export default function CompaniesPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
 
-  // Map UI filter -> backend status param
+  // Normalize filter to API parameter
   const statusParam: CompanyStatus | undefined =
     activeFilter === 'All' ? undefined : activeFilter === 'Verified' ? 'VERIFIED' : 'PENDING';
 
-  // Main list query (server-side filter + search)
+  // =========================================================================
+  // QUERIES
+  // =========================================================================
+
+  /**
+   * Main companies list - filtered, searched, paginated
+   * Invalidate: when deleting, editing, or filtering changes
+   */
   const companiesQ = useQuery({
-    queryKey: ['admin', 'companies', { status: statusParam ?? 'ALL', q: debouncedSearch, deleted: showDeleted ? 'deleted' : 'active' }],
+    queryKey: ['admin:companies:list', { status: statusParam ?? 'ALL', search: debouncedSearch, deleted: showDeleted }],
     queryFn: async () => {
       const res = await adminCompanies({
         status: statusParam,
@@ -165,40 +231,60 @@ export default function CompaniesPage() {
     retry: false,
   });
 
-  // Counts (fast)
+  /**
+   * Total count of all companies (for filter badge)
+   */
   const allCountQ = useQuery({
-    queryKey: ['admin', 'companies', 'count', 'ALL', showDeleted ? 'deleted' : 'active'],
-    queryFn: async () => normalizeCompaniesResponse(await adminCompanies({ deleted: showDeleted ? 'deleted' : 'active', skip: 0, take: 1 })),
+    queryKey: ['admin:companies:count:ALL', showDeleted],
+    queryFn: async () =>
+      normalizeCompaniesResponse(await adminCompanies({ deleted: showDeleted ? 'deleted' : 'active', skip: 0, take: 1 })),
     retry: false,
   });
 
+  /**
+   * Count of verified companies
+   */
   const verifiedCountQ = useQuery({
-    queryKey: ['admin', 'companies', 'count', 'VERIFIED', showDeleted ? 'deleted' : 'active'],
+    queryKey: ['admin:companies:count:VERIFIED', showDeleted],
     queryFn: async () =>
-      normalizeCompaniesResponse(await adminCompanies({ status: 'VERIFIED', deleted: showDeleted ? 'deleted' : 'active', skip: 0, take: 1 })),
+      normalizeCompaniesResponse(
+        await adminCompanies({ status: 'VERIFIED', deleted: showDeleted ? 'deleted' : 'active', skip: 0, take: 1 })
+      ),
     retry: false,
   });
 
+  /**
+   * Count of pending companies
+   */
   const pendingCountQ = useQuery({
-    queryKey: ['admin', 'companies', 'count', 'PENDING', showDeleted ? 'deleted' : 'active'],
+    queryKey: ['admin:companies:count:PENDING', showDeleted],
     queryFn: async () =>
-      normalizeCompaniesResponse(await adminCompanies({ status: 'PENDING', deleted: showDeleted ? 'deleted' : 'active', skip: 0, take: 1 })),
+      normalizeCompaniesResponse(
+        await adminCompanies({ status: 'PENDING', deleted: showDeleted ? 'deleted' : 'active', skip: 0, take: 1 })
+      ),
     retry: false,
   });
 
-  // Delete mutation
+  // =========================================================================
+  // MUTATIONS
+  // =========================================================================
+
+  /**
+   * Delete a company
+   * On success: invalidate all company queries to refresh data
+   */
   const deleteCompanyM = useMutation({
-    mutationFn: async (id: string) => {
-      return adminDeleteCompany(id);
-    },
+    mutationFn: async (id: string) => adminDeleteCompany(id),
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['admin', 'companies'] });
-      await qc.invalidateQueries({ queryKey: ['admin', 'companies', 'count'] });
+      await qc.invalidateQueries({ queryKey: ['admin:companies'] });
     },
   });
 
+  // =========================================================================
+  // DERIVED STATE
+  // =========================================================================
 
-
+  /** Transform API companies to UI companies for display */
   const companies: UiCompany[] = useMemo(() => {
     const items = companiesQ.data?.items ?? [];
 
@@ -226,6 +312,7 @@ export default function CompaniesPage() {
     });
   }, [companiesQ.data]);
 
+  /** Count map for filter buttons */
   const counts = {
     All: allCountQ.data?.total ?? 0,
     Verified: verifiedCountQ.data?.total ?? 0,
@@ -356,107 +443,119 @@ export default function CompaniesPage() {
                       </td>
                     </tr>
                   ) : (
-                    companies.map((company) => {
-                      const logoClass = pickLogoColor(company.id || company.name);
-
-                      return (
-                        <tr
-                          key={company.id}
-                          className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
-                        >
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className="relative">
-                                <div
-                                  className={`h-10 w-10 rounded-lg flex items-center justify-center font-bold text-sm flex-shrink-0 overflow-hidden ${company.logoUrl ? '' : logoClass}`}
-                                >
-                                  {company.logoUrl ? (
-                                    <img
-                                      src={company.logoUrl}
-                                      alt={company.name}
-                                      className="w-full h-full object-cover"
-                                    />
-                                  ) : (
-                                    company.logo
-                                  )}
-                                </div>
-                                {(company as any).hasBadge && (
-                                  <div className="absolute -bottom-1 -right-1 h-4 w-4 bg-blue-600 rounded-full flex items-center justify-center shadow-lg border border-white">
-                                    <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                    </svg>
-                                  </div>
+                    companies.map((company) => (
+                      <tr
+                        key={company.id}
+                        className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      >
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="relative">
+                              {/* Company Logo or Initials */}
+                              <div
+                                className={`h-10 w-10 rounded-lg flex items-center justify-center font-bold text-sm flex-shrink-0 overflow-hidden ${
+                                  company.logoUrl ? '' : pickLogoColor(company.id || company.name)
+                                }`}
+                              >
+                                {company.logoUrl ? (
+                                  <img
+                                    src={company.logoUrl}
+                                    alt={company.name}
+                                    className="w-full h-full object-cover"
+                                    loading="lazy"
+                                  />
+                                ) : (
+                                  company.logo
                                 )}
                               </div>
-                              <div>
-                                <div className="font-medium text-slate-900 dark:text-white">
-                                  {company.name}
+
+                              {/* Premium Badge (blue checkmark) */}
+                              {company.hasBadge && (
+                                <div
+                                  className="absolute -bottom-1 -right-1 h-4 w-4 bg-blue-600 rounded-full flex items-center justify-center shadow-lg border border-white dark:border-slate-900"
+                                  title="Premium badge"
+                                >
+                                  <svg
+                                    className="w-2.5 h-2.5 text-white"
+                                    fill="currentColor"
+                                    viewBox="0 0 20 20"
+                                    aria-label="Verified"
+                                  >
+                                    <path
+                                      fillRule="evenodd"
+                                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                      clipRule="evenodd"
+                                    />
+                                  </svg>
                                 </div>
-                                <div className="text-xs text-slate-500">{company.domain}</div>
+                              )}
+                            </div>
+
+                            {/* Company Info */}
+                            <div>
+                              <div className="font-medium text-slate-900 dark:text-white">
+                                {company.name}
                               </div>
+                              <div className="text-xs text-slate-500">{company.domain}</div>
                             </div>
                           </td>
 
-                          <td className="px-6 py-4">
-                            <span
-                              className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold ${badgeClass(
-                                company.status
-                              )}`}
-                              title={company.rawStatus ? `Backend: ${company.rawStatus}` : undefined}
+                        <td className="px-6 py-4">
+                          <span
+                            className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold ${badgeClass(
+                              company.status
+                            )}`}
+                            title={company.rawStatus ? `Backend: ${company.rawStatus}` : undefined}
+                          >
+                            {company.status === 'Other' ? company.rawStatus || 'Other' : company.status}
+                          </span>
+                        </td>
+
+                        <td className="px-6 py-4 text-slate-700 dark:text-slate-300">
+                          {company.ownerEmail}
+                        </td>
+
+                        <td className="px-6 py-4">
+                          <StarRating rating={company.adminRating || 0} size="sm" />
+                        </td>
+
+                        <td className="px-6 py-4 text-slate-700 dark:text-slate-300">
+                          {company.createdDate}
+                        </td>
+
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <Link
+                              href={`/admin/products?companyId=${company.id}`}
+                              className="px-3 py-1.5 text-xs font-medium text-admin-primary hover:bg-admin-primary/10 rounded-lg transition-colors"
                             >
-                              {company.status === 'Other'
-                                ? company.rawStatus || 'Other'
-                                : company.status}
-                            </span>
-                          </td>
+                              View Products
+                            </Link>
 
-                          <td className="px-6 py-4 text-slate-700 dark:text-slate-300">
-                            {company.ownerEmail}
-                          </td>
+                            <button
+                              onClick={() => setEditingCompanyId(company.id)}
+                              className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                              title="Edit company details"
+                            >
+                              <Edit2 className="h-4 w-4 text-slate-600" />
+                            </button>
 
-                          <td className="px-6 py-4">
-                            <StarRating rating={company.adminRating || 0} size="sm" />
-                          </td>
-
-                          <td className="px-6 py-4 text-slate-700 dark:text-slate-300">
-                            {company.createdDate}
-                          </td>
-
-                          <td className="px-6 py-4 text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <Link
-                                href={`/admin/products?companyId=${company.id}`}
-                                className="px-3 py-1.5 text-xs font-medium text-admin-primary hover:bg-admin-primary/10 rounded-lg transition-colors"
-                              >
-                                View Products
-                              </Link>
-
-                              <button
-                                onClick={() => setEditingCompanyId(company.id)}
-                                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-                                title="Edit company details"
-                              >
-                                <Edit2 className="h-4 w-4 text-slate-600" />
-                              </button>
-
-                              <button
-                                onClick={() => {
-                                  if (confirm(`Delete "${company.name}"?`)) {
-                                    deleteCompanyM.mutate(company.id);
-                                  }
-                                }}
-                                disabled={deleteCompanyM.isPending}
-                                className="p-2 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-colors disabled:opacity-60"
-                                title="Delete company"
-                              >
-                                <Trash2 className="h-4 w-4 text-slate-600 hover:text-rose-600" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
+                            <button
+                              onClick={() => {
+                                if (confirm(`Delete "${company.name}"?`)) {
+                                  deleteCompanyM.mutate(company.id);
+                                }
+                              }}
+                              disabled={deleteCompanyM.isPending}
+                              className="p-2 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-colors disabled:opacity-60"
+                              title="Delete company"
+                            >
+                              <Trash2 className="h-4 w-4 text-slate-600 hover:text-rose-600" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
                 </tbody>
               </table>
             </div>
