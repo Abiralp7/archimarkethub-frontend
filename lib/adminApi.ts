@@ -173,18 +173,6 @@ function normalizeCompanyParams(params?: AdminCompaniesParams): Record<string, a
     take: params?.take ?? 50,
   };
 }
-  if (typeof r.fileUrl === 'string') return r.fileUrl;
-  if (typeof r.path === 'string') return r.path;
-  if (typeof r.location === 'string') return r.location;
-
-  const d = r.data;
-  if (d?.url) return d.url;
-  if (d?.fileUrl) return d.fileUrl;
-  if (d?.path) return d.path;
-  if (d?.location) return d.location;
-
-  return null;
-}
 
 /** ============================================================================
  * FILE UPLOADS
