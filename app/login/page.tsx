@@ -21,8 +21,8 @@ export default function LoginPage() {
     try {
       const data = await login(email, password);
 
-      // If you want: send admins to admin dashboard, others to company dashboard
-      if (data.user.role === 'ADMIN') router.push('/admin/companies');
+      // Send admins to admin dashboard, others to company dashboard
+      if (data.user.role === 'ADMIN') router.push('/admin');
       else router.push('/company/me');
     } catch (e: any) {
       const msg =
